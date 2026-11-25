@@ -132,7 +132,15 @@ class IntakeStore:
                     if statement.strip():
                         db.execute(statement)
                 db.execute("PRAGMA user_version = 3")
-            elif version != 3:
+                version = 3
+            if version == 3:
+                from claimpilot.storage.contractors import CONTRACTOR_SCHEMA
+
+                for statement in CONTRACTOR_SCHEMA.split(";"):
+                    if statement.strip():
+                        db.execute(statement)
+                db.execute("PRAGMA user_version = 4")
+            elif version != 4:
                 raise RuntimeError("Unsupported ClaimPilot database version")
 
     @staticmethod

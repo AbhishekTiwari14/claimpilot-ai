@@ -67,17 +67,19 @@ Add reproducible synthetic seeding, operator-authenticated PDF/DOCX/TXT/MD inges
 
 See [Phase 4 API and evaluation instructions](KNOWLEDGE_API.md).
 
-## Phase 5 — Contractor proposals, approval and simulated dispatch
+## Phase 5 — Contractor recommendation and dynamic tools
 
-Add synthetic vendor catalog, deterministic ranker, review queue API and immutable expiring proposals. Implement human decisions and the idempotent simulator with persisted outcomes and dispatch reconciliation.
+Seed fictional contractors per workspace. Add a bounded Groq tool loop, deterministic urgency and eligibility checks, and versioned expiring proposals with observable traces. Keep the proposal boundary ready for future human decisions and simulated dispatch.
 
 - All returned candidates match eligibility rules, and equal-scoring candidates keep stable order. The workflow opens a review item when no eligible contractor is available.
-- Only a current, authorized, unexpired approval for the bound snapshot can reserve dispatch. Rejection, expiry, replay, scope change, fact change and mismatched actor or digest are covered.
-- Restart before reservation, after reservation and after simulator acceptance. Repeated or concurrent request delivery creates one job, one dispatch result and one transition per operation. A timeout with unknown outcome is resolved by key or remains in reconciliation.
+- Authority comes from confirmed facts, scoped SQLite contractor records and active operations citations. Changed inputs invalidate the proposal. The agent persists advisory proposals awaiting human approval.
+- Evaluate multiple valid tool sequences, limits, failures, stale proposals and mandatory escalation. Verify eligible and empty-search native Groq runs using their tool-result call IDs.
+
+See [Phase 5 API, examples and evaluation](CONTRACTOR_API.md).
 
 ## Phase 6 — SLA tracking, reporting and release evaluation
 
-Add simulator progress events, due-event scanner, SLA milestones, structured report API and operational/audit views. Build the end-to-end offline evaluation harness and optional Groq comparison.
+Add human approval execution, idempotent simulated dispatch, simulator progress events, the due-event scanner, SLA milestones, structured report API and operational/audit views. Build the end-to-end offline evaluation harness and optional Groq comparison.
 
 - An injected clock drives SLA tests without real waits. Duplicate and out-of-order callbacks preserve monotonic state. Each breach is recorded once and completion retains breach history.
 - Completed and closed claims yield reports that reconcile with domain records and their audit cutoff. Reports respect role-based redaction. Optional model summaries use a deterministic fallback.

@@ -3,6 +3,7 @@ import json
 import logging
 import math
 from collections.abc import Callable
+from dataclasses import dataclass
 from time import monotonic, sleep
 from typing import TYPE_CHECKING, TypeVar
 
@@ -11,6 +12,7 @@ from pydantic import BaseModel
 from claimpilot.config import Settings
 
 if TYPE_CHECKING:
+    from langchain_core.messages import AIMessage
     from langchain_groq import ChatGroq
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,20 @@ class LLMError(RuntimeError):
         self.code = code
         self.retryable = retryable
         self.retry_after = retry_after
+        self.retries = 0
+
+
+@dataclass(frozen=True)
+class ToolTurn:
+    message: "AIMessage"
+    retries: int
+
+
+def retry_delay(error: LLMError, retries: int, max_retries: int) -> float | None:
+    if not error.retryable or retries >= max_retries:
+        return None
+    delay = error.retry_after if error.retry_after is not None else 0.25 * 2**retries
+    return delay if delay <= MAX_RETRY_DELAY else None
 
 
 class LLMService:
@@ -96,12 +112,8 @@ class LLMService:
                         response = self._invoke(runnable, messages)
                         break
                     except LLMError as error:
-                        if not error.retryable or retries >= self._settings.claimpilot_llm_max_retries:
-                            raise
-                        delay = error.retry_after
+                        delay = retry_delay(error, retries, self._settings.claimpilot_llm_max_retries)
                         if delay is None:
-                            delay = 0.25 * 2**retries
-                        if delay > MAX_RETRY_DELAY:
                             raise
                         self._wait(delay)
                         retries += 1
@@ -146,6 +158,58 @@ class LLMService:
                 usage.get("input_tokens"),
                 usage.get("output_tokens"),
                 usage.get("total_tokens"),
+            )
+
+    def tool_turn(
+        self, messages: list, tools: list, *, offline_turn: Callable[[list], "AIMessage"],
+        tool_choice: str = "auto",
+    ) -> ToolTurn:
+        """Invoke one native tool turn, leaving authorization and execution to the caller."""
+        start = monotonic()
+        provider = self._settings.claimpilot_llm_provider
+        model = "offline-fixture" if provider == "offline" else self._settings.groq_model
+        retries = 0
+        usage = {}
+        status = "internal_error"
+        try:
+            if provider == "offline":
+                message = offline_turn(messages)
+            else:
+                chat = self._get_chat_model(vision=False)
+                options = {
+                    "parallel_tool_calls": False, "tool_choice": tool_choice,
+                    "disable_tool_validation": True, "temperature": 0.2,
+                }
+                if chat.model_name in ("openai/gpt-oss-20b", "openai/gpt-oss-120b"):
+                    options["reasoning_effort"] = "low"
+                runnable = chat.bind_tools(tools, **options)
+                while True:
+                    try:
+                        message = self._invoke(runnable, messages)
+                        break
+                    except LLMError as error:
+                        if error.code == "invalid_tool_output":
+                            error.retryable = True
+                        delay = retry_delay(error, retries, self._settings.claimpilot_llm_max_retries)
+                        if delay is None:
+                            raise
+                        self._wait(delay)
+                        retries += 1
+            usage = message.usage_metadata or {}
+            if message.response_metadata.get("finish_reason") not in (None, "stop", "tool_calls"):
+                raise LLMError("invalid_output")
+            status = "success"
+            return ToolTurn(message, retries)
+        except LLMError as error:
+            status = error.code
+            error.retries = retries
+            raise
+        finally:
+            logger.info(
+                "llm_execution operation=contractor-tools-v1 provider=%s model=%s status=%s "
+                "latency_ms=%s retries=%s input_tokens=%s output_tokens=%s total_tokens=%s",
+                provider, model, status, round((monotonic() - start) * 1000, 1), retries,
+                usage.get("input_tokens"), usage.get("output_tokens"), usage.get("total_tokens"),
             )
 
     def _get_chat_model(self, *, vision: bool) -> "ChatGroq":
@@ -208,6 +272,8 @@ class LLMService:
             details = error.body.get("error") if isinstance(error.body, dict) else None
             if isinstance(details, dict) and details.get("code") == "json_validate_failed":
                 raise LLMError("invalid_output") from None
+            if isinstance(details, dict) and details.get("code") == "tool_use_failed":
+                raise LLMError("invalid_tool_output") from None
             raise LLMError("provider_error") from None
         except GroqError:
             raise LLMError("provider_error") from None

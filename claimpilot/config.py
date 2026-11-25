@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     claimpilot_kb_chunk_overlap: int = Field(default=150, ge=0, le=500)
     claimpilot_kb_batch_size: int = Field(default=24, ge=1, le=64)
     claimpilot_kb_top_k: int = Field(default=5, ge=1, le=12)
+    claimpilot_agent_max_iterations: int = Field(default=10, ge=1, le=16)
+    claimpilot_agent_max_tool_calls: int = Field(default=12, ge=1, le=24)
+    claimpilot_agent_tool_timeout_seconds: float = Field(default=5, gt=0, le=30)
+    claimpilot_agent_deadline_seconds: float = Field(default=100, gt=0, le=300)
 
     @model_validator(mode="after")
     def distinct_knowledge_credentials(self) -> "Settings":

@@ -31,7 +31,7 @@ A workspace is the tenant boundary represented by `tenant_id` in storage. Resolv
 | `storage/` | Versioned SQLite migrations, transactions and repository queries. Chroma policy index adapter. |
 | `tests/`, future `evals/` | Unit, graph, API and crash-path tests. Versioned synthetic scenarios and score runner. |
 
-The backend serves health, conversational intake, damage photo evidence, and the knowledge API. Intake, photo analysis and indexing use synchronous calls with a persisted reservation before external or compute work. The planned workflow worker will serialize downstream graph execution per claim and scan due SLAs and approval expiry. The future React/TypeScript client uses versioned OpenAPI types, Tailwind and shadcn/ui. [FastAPI settings](https://fastapi.tiangolo.com/advanced/settings/) · [shadcn/ui Vite setup](https://ui.shadcn.com/docs/installation/vite)
+The backend serves health, conversational intake, damage photos, knowledge and contractor recommendations. Intake, photo analysis, indexing and recommendation use synchronous calls with a persisted reservation before provider I/O or compute. The planned workflow worker will serialize downstream graph execution per claim and scan due SLAs and approval expiry. The future React/TypeScript client uses versioned OpenAPI types, Tailwind and shadcn/ui. [FastAPI settings](https://fastapi.tiangolo.com/advanced/settings/) · [shadcn/ui Vite setup](https://ui.shadcn.com/docs/installation/vite)
 
 ### Phase 1 model boundary
 
@@ -70,6 +70,16 @@ Phase 3 checks workspace and claimant through the existing claim scope before ac
 An analysis links one to three selected photo UUIDs and stores its provider, model, attempt count, status, and typed report separately from claim facts. The existing LLM service sends normalized JPEGs as data URLs to the configurable Qwen vision model using documented JSON mode. Local validation checks the exact image IDs and order, bounds lists and rejects unsupported safety claims and extra fields. Direct visible indicators, materials and areas are distinct from apparent severity, tentative safety cues and suggested trades. The prompt treats photos, embedded text and customer context as untrusted. [Groq vision](https://console.groq.com/docs/vision)
 
 SQLite reserves the analysis and stores selected IDs before model I/O. Failed analyses preserve the photographs and retry under the same idempotency key. Deletion erases the stored BLOB and clears every linked analysis result in one transaction. An in-flight result can commit only while its current attempt is pending, so a deletion wins against a late model response. Completed analyses contribute live optional questions to claim reads and intake turns, including possible disagreement about damage types and rooms. The service builds these chat questions from validated cues and templates. Photo observations leave claim facts, safety state, and confirmation requirements intact. Previously stored turns contain no derived photo questions, so deleted results do not reappear in a replay.
+
+### Phase 5 contractor recommendations
+
+The operator's workspace and the confirmed claim determine contractor scope. The synthetic SQLite catalog seeds 24 fictional records independently for configured workspaces. The service derives a ZIP, required trade and urgency from the confirmed report. Clearly labeled photo observations can elevate urgency or trigger review. Immediate hazards take precedence and require human intervention before any tool call. An available policy binding supplies a preliminary advisory assessment.
+
+GPT-OSS 20B selects native LangChain tools in a bounded loop. The server exposes verified progress so the model can choose the next useful check in any order. Each tool result returns under the original call ID. Typed validation, an allowlist, iteration and call budgets, request timeouts and a bounded local read executor govern execution. Structured-policy requests use their own schema call. The model's free text and reasoning do not become part of the proposal or trace. [Groq local tool calling](https://console.groq.com/docs/tool-use/local-tool-calling)
+
+The model can read scoped candidates, current availability, arrival estimates, historical performance and requirements. Requirements reuse active Chroma evidence from the checked-in synthetic operations handbook. The service verifies the handbook hash and required text before deriving SLA values. Only the proposal tool can submit a draft, and it checks the chosen ID against discovered records, observed results and current eligibility. The server resolves the final ETA and alternatives from SQLite. A versioned proposal awaits approval, requires intervention or records an unsuccessful attempt. The API exposes only those proposal operations in this phase.
+
+The proposal transaction checks the claim version and fingerprint, current contractor fingerprints, and active handbook citations. A proposal expires after 15 minutes and becomes permanently stale when a relevant change is detected. Operator routes expose the effective proposal and a separate sanitized execution trace with call IDs, metadata, timing, token counts and decisions.
 
 ## Workflow and routing
 
@@ -150,9 +160,10 @@ IDs are server-generated UUID text unless otherwise stated. UTC times are RFC 33
 | `claim_photos` | `id PK, claim_id FK, width, height, size_bytes, sha256?, original_sha256?, data?, created_at`. Ownership derives from the claim. The BLOB and hashes are nulled on deletion. |
 | `photo_analyses` | `id PK, claim_id FK, photo_ids_json, status, provider, model, attempts, result_json?, error_code?`. Typed observations remain separate from fact revisions. |
 | `photo_analysis_images` | `analysis_id FK, photo_id FK`. Composite primary key. The service validates claim scope when linking photos. |
-| `contractors` | `id PK, tenant_id, name, trades_json, areas_json, active, credential_valid_until, insurance_valid_until, availability_json, version`. Index tenant/active. |
+| `contractors` | `tenant_id,id` composite primary key. Typed `record_json` stores synthetic trades, ZIPs, hours, availability, estimated costs and performance. |
+| `contractor_runs` | `id PK, tenant_id, claim_id FK, provider, model, claim_version, status, trace_json?`. Replays retain the run ID. |
 | `review_items` | `id PK, claim_id FK, reason_codes_json, evidence_json, status, created_at, resolved_at?, resolution_json?`. One open item per claim. |
-| `dispatch_proposals` | `id PK, claim_id FK, contractor_id FK, basis_claim_version, fact_revision, snapshot_json, digest, expires_at, status, created_at`. One pending proposal per claim. Immutable snapshot includes scope, policy clearance, vendor version, ETA and completion deadline. |
+| `dispatch_proposals` | `id PK, run_id FK UNIQUE, claim_id FK, version, proposal_json, claim_fingerprint, contractor_fingerprints`. Unique claim/version. The record carries expiry and effective proposal status. |
 | `approval_decisions` | `id PK, proposal_id FK UNIQUE, reviewer_id, outcome, reason, proposal_digest, decided_at`. Outcomes approve/reject. Immutable. |
 | `dispatches` | `id PK, claim_id FK, proposal_id FK UNIQUE, approval_id FK UNIQUE, operation_key UNIQUE, external_ref? UNIQUE, status, status_version, accepted_at?`. One active dispatch per claim. |
 | `simulated_dispatch_jobs` | `operation_key PK, payload_digest, job_ref UNIQUE, status, status_version, accepted_at`. Persistent simulator ledger. |
@@ -205,6 +216,12 @@ The current API serves liveness, intake, photos and knowledge under `/api/v1`. U
 | `POST /knowledge/playground/query` | Same scope and query as search | 200 grounded answer or insufficient evidence |
 | `POST /claims/{id}/policy-binding` | `{policy_version}` | 200 binding for the confirmed policy ID |
 | `POST /claims/{id}/policy-assessment` | None | 200 advisory assessment from confirmed facts and bound version |
+| `GET /contractors` | None | 200 scoped synthetic catalog |
+| `GET /contractors/{id}` | None | 200 scoped contractor |
+| `POST /claims/{id}/contractor-recommendations` | `{expected_version}` plus idempotency key | 200 run and versioned proposal |
+| `GET /claims/{id}/contractor-recommendations/{run_id}` | None | 200 current status and proposal |
+| `GET /claims/{id}/contractor-recommendations/{run_id}/trace` | None | 200 sanitized tool and model execution trace |
+| `GET /claims/{id}/dispatch-proposals` | None | 200 proposal history with validity check |
 
 `ClaimView` includes ID, version, status, timestamps, allowed facts, urgency and an optional wait object with kind, item ID, questions or expiry. Reviewer views may include reason codes, clause citations, proposal and SLA milestones. Status values are `queued`, `processing`, `awaiting_information`, `awaiting_review`, `awaiting_approval`, `tracking`, `completed`, `closed_without_dispatch`. Simulator transitions go from `accepted` through `acknowledged`, `arrived`, `completed` or a permitted failure/cancellation. Monotonic versions and unique external event IDs prevent replay or regression. Report fields are schema version, claim ID, fact revision, facts/provenance, policy status/citations, urgency/rule decisions, human approvals/reviews, dispatch timeline, SLA outcomes and closure reason with an audit cutoff.
 

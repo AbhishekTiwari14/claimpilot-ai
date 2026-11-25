@@ -1,0 +1,672 @@
+[
+  {
+    "id": "CT-001",
+    "name": "Cedar Rapid Recovery",
+    "specializations": [
+      "water_restoration"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101",
+      "98109"
+    ],
+    "opens_utc": 0,
+    "closes_utc": 24,
+    "available": true,
+    "capacity": 1,
+    "arrival_minutes": 45,
+    "rating": 4.1,
+    "acceptance_rate": 0.78,
+    "completion_rate": 0.88,
+    "estimated_cost_usd": 230,
+    "emergency_capable": true,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-002",
+    "name": "Harbor Water Recovery",
+    "specializations": [
+      "water_restoration"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101",
+      "98109"
+    ],
+    "opens_utc": 0,
+    "closes_utc": 24,
+    "available": true,
+    "capacity": 2,
+    "arrival_minutes": 70,
+    "rating": 4.2,
+    "acceptance_rate": 0.8,
+    "completion_rate": 0.897,
+    "estimated_cost_usd": 251,
+    "emergency_capable": true,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-003",
+    "name": "Juniper Fire Recovery",
+    "specializations": [
+      "fire_restoration"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101",
+      "98109"
+    ],
+    "opens_utc": 8,
+    "closes_utc": 18,
+    "available": true,
+    "capacity": 3,
+    "arrival_minutes": 121,
+    "rating": 4.3,
+    "acceptance_rate": 0.82,
+    "completion_rate": 0.913,
+    "estimated_cost_usd": 272,
+    "emergency_capable": false,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-004",
+    "name": "Ashline Restoration",
+    "specializations": [
+      "fire_restoration"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101",
+      "98109"
+    ],
+    "opens_utc": 0,
+    "closes_utc": 24,
+    "available": true,
+    "capacity": 4,
+    "arrival_minutes": 149,
+    "rating": 4.4,
+    "acceptance_rate": 0.84,
+    "completion_rate": 0.93,
+    "estimated_cost_usd": 293,
+    "emergency_capable": true,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-005",
+    "name": "Highline Storm Repair",
+    "specializations": [
+      "storm_damage"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101",
+      "98109"
+    ],
+    "opens_utc": 8,
+    "closes_utc": 18,
+    "available": true,
+    "capacity": 1,
+    "arrival_minutes": 177,
+    "rating": 4.5,
+    "acceptance_rate": 0.86,
+    "completion_rate": 0.947,
+    "estimated_cost_usd": 314,
+    "emergency_capable": false,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-006",
+    "name": "Windward Property Care",
+    "specializations": [
+      "storm_damage"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101",
+      "98109"
+    ],
+    "opens_utc": 8,
+    "closes_utc": 18,
+    "available": true,
+    "capacity": 2,
+    "arrival_minutes": 205,
+    "rating": 4.6,
+    "acceptance_rate": 0.88,
+    "completion_rate": 0.963,
+    "estimated_cost_usd": 335,
+    "emergency_capable": false,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-007",
+    "name": "Slate Peak Roofing",
+    "specializations": [
+      "roofing"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101",
+      "98109"
+    ],
+    "opens_utc": 0,
+    "closes_utc": 24,
+    "available": true,
+    "capacity": 3,
+    "arrival_minutes": 233,
+    "rating": 4.7,
+    "acceptance_rate": 0.9,
+    "completion_rate": 0.88,
+    "estimated_cost_usd": 356,
+    "emergency_capable": true,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-008",
+    "name": "Copper Ridge Roofing",
+    "specializations": [
+      "roofing"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101",
+      "98109"
+    ],
+    "opens_utc": 8,
+    "closes_utc": 18,
+    "available": true,
+    "capacity": 4,
+    "arrival_minutes": 261,
+    "rating": 4.8,
+    "acceptance_rate": 0.92,
+    "completion_rate": 0.897,
+    "estimated_cost_usd": 377,
+    "emergency_capable": false,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-009",
+    "name": "Clearwell Plumbing",
+    "specializations": [
+      "plumbing"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101",
+      "98109"
+    ],
+    "opens_utc": 8,
+    "closes_utc": 18,
+    "available": true,
+    "capacity": 1,
+    "arrival_minutes": 65,
+    "rating": 4.1,
+    "acceptance_rate": 0.94,
+    "completion_rate": 0.913,
+    "estimated_cost_usd": 398,
+    "emergency_capable": false,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-010",
+    "name": "Silver Tap Plumbing",
+    "specializations": [
+      "plumbing"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101",
+      "98109"
+    ],
+    "opens_utc": 0,
+    "closes_utc": 24,
+    "available": true,
+    "capacity": 2,
+    "arrival_minutes": 93,
+    "rating": 4.2,
+    "acceptance_rate": 0.96,
+    "completion_rate": 0.93,
+    "estimated_cost_usd": 419,
+    "emergency_capable": true,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-011",
+    "name": "Brightline Electric",
+    "specializations": [
+      "electrical"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101",
+      "98109"
+    ],
+    "opens_utc": 8,
+    "closes_utc": 18,
+    "available": true,
+    "capacity": 3,
+    "arrival_minutes": 121,
+    "rating": 4.3,
+    "acceptance_rate": 0.78,
+    "completion_rate": 0.947,
+    "estimated_cost_usd": 440,
+    "emergency_capable": false,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-012",
+    "name": "Sparkstone Electrical",
+    "specializations": [
+      "electrical"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101",
+      "98109"
+    ],
+    "opens_utc": 8,
+    "closes_utc": 18,
+    "available": true,
+    "capacity": 4,
+    "arrival_minutes": 149,
+    "rating": 4.4,
+    "acceptance_rate": 0.8,
+    "completion_rate": 0.963,
+    "estimated_cost_usd": 461,
+    "emergency_capable": false,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-013",
+    "name": "Willow Property Repair",
+    "specializations": [
+      "general_restoration"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101",
+      "98109"
+    ],
+    "opens_utc": 0,
+    "closes_utc": 24,
+    "available": true,
+    "capacity": 1,
+    "arrival_minutes": 177,
+    "rating": 4.5,
+    "acceptance_rate": 0.82,
+    "completion_rate": 0.88,
+    "estimated_cost_usd": 482,
+    "emergency_capable": true,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-014",
+    "name": "Maple General Restoration",
+    "specializations": [
+      "general_restoration"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101",
+      "98109"
+    ],
+    "opens_utc": 8,
+    "closes_utc": 18,
+    "available": true,
+    "capacity": 2,
+    "arrival_minutes": 205,
+    "rating": 4.6,
+    "acceptance_rate": 0.84,
+    "completion_rate": 0.897,
+    "estimated_cost_usd": 503,
+    "emergency_capable": false,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-015",
+    "name": "Basin Drying Services",
+    "specializations": [
+      "water_restoration"
+    ],
+    "service_areas": [
+      "Synthetic Tacoma metro"
+    ],
+    "zip_codes": [
+      "98402",
+      "98405"
+    ],
+    "opens_utc": 8,
+    "closes_utc": 18,
+    "available": true,
+    "capacity": 3,
+    "arrival_minutes": 233,
+    "rating": 4.7,
+    "acceptance_rate": 0.86,
+    "completion_rate": 0.913,
+    "estimated_cost_usd": 524,
+    "emergency_capable": false,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-016",
+    "name": "Rainshadow Mitigation",
+    "specializations": [
+      "water_restoration"
+    ],
+    "service_areas": [
+      "Synthetic Tacoma metro"
+    ],
+    "zip_codes": [
+      "98402",
+      "98405"
+    ],
+    "opens_utc": 0,
+    "closes_utc": 24,
+    "available": true,
+    "capacity": 4,
+    "arrival_minutes": 261,
+    "rating": 4.8,
+    "acceptance_rate": 0.88,
+    "completion_rate": 0.93,
+    "estimated_cost_usd": 545,
+    "emergency_capable": true,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-017",
+    "name": "Ember Ridge Recovery",
+    "specializations": [
+      "fire_restoration"
+    ],
+    "service_areas": [
+      "Synthetic Tacoma metro"
+    ],
+    "zip_codes": [
+      "98402",
+      "98405"
+    ],
+    "opens_utc": 8,
+    "closes_utc": 18,
+    "available": true,
+    "capacity": 1,
+    "arrival_minutes": 65,
+    "rating": 4.1,
+    "acceptance_rate": 0.9,
+    "completion_rate": 0.947,
+    "estimated_cost_usd": 566,
+    "emergency_capable": false,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-018",
+    "name": "Stonebridge Storm Care",
+    "specializations": [
+      "storm_damage"
+    ],
+    "service_areas": [
+      "Synthetic Tacoma metro"
+    ],
+    "zip_codes": [
+      "98402",
+      "98405"
+    ],
+    "opens_utc": 8,
+    "closes_utc": 18,
+    "available": true,
+    "capacity": 2,
+    "arrival_minutes": 93,
+    "rating": 4.2,
+    "acceptance_rate": 0.92,
+    "completion_rate": 0.963,
+    "estimated_cost_usd": 587,
+    "emergency_capable": false,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-019",
+    "name": "Northgate Roofing",
+    "specializations": [
+      "roofing"
+    ],
+    "service_areas": [
+      "Synthetic Tacoma metro"
+    ],
+    "zip_codes": [
+      "98402",
+      "98405"
+    ],
+    "opens_utc": 0,
+    "closes_utc": 24,
+    "available": true,
+    "capacity": 3,
+    "arrival_minutes": 121,
+    "rating": 4.3,
+    "acceptance_rate": 0.94,
+    "completion_rate": 0.88,
+    "estimated_cost_usd": 608,
+    "emergency_capable": true,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-020",
+    "name": "Bluepipe Response",
+    "specializations": [
+      "plumbing"
+    ],
+    "service_areas": [
+      "Synthetic Tacoma metro"
+    ],
+    "zip_codes": [
+      "98402",
+      "98405"
+    ],
+    "opens_utc": 8,
+    "closes_utc": 18,
+    "available": true,
+    "capacity": 4,
+    "arrival_minutes": 149,
+    "rating": 4.4,
+    "acceptance_rate": 0.96,
+    "completion_rate": 0.897,
+    "estimated_cost_usd": 629,
+    "emergency_capable": false,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-021",
+    "name": "Riverbend Electric",
+    "specializations": [
+      "electrical"
+    ],
+    "service_areas": [
+      "Synthetic Tacoma metro"
+    ],
+    "zip_codes": [
+      "98402",
+      "98405"
+    ],
+    "opens_utc": 8,
+    "closes_utc": 18,
+    "available": true,
+    "capacity": 1,
+    "arrival_minutes": 177,
+    "rating": 4.5,
+    "acceptance_rate": 0.78,
+    "completion_rate": 0.913,
+    "estimated_cost_usd": 650,
+    "emergency_capable": false,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-022",
+    "name": "Opal Property Recovery",
+    "specializations": [
+      "general_restoration"
+    ],
+    "service_areas": [
+      "Synthetic Tacoma metro"
+    ],
+    "zip_codes": [
+      "98402",
+      "98405"
+    ],
+    "opens_utc": 0,
+    "closes_utc": 24,
+    "available": true,
+    "capacity": 2,
+    "arrival_minutes": 205,
+    "rating": 4.6,
+    "acceptance_rate": 0.8,
+    "completion_rate": 0.93,
+    "estimated_cost_usd": 671,
+    "emergency_capable": true,
+    "active": true,
+    "credentialed": true,
+    "insured": false,
+    "synthetic": true
+  },
+  {
+    "id": "CT-023",
+    "name": "Crestline Water Repair",
+    "specializations": [
+      "water_restoration"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101"
+    ],
+    "opens_utc": 8,
+    "closes_utc": 18,
+    "available": false,
+    "capacity": 0,
+    "arrival_minutes": 233,
+    "rating": 4.7,
+    "acceptance_rate": 0.82,
+    "completion_rate": 0.947,
+    "estimated_cost_usd": 692,
+    "emergency_capable": false,
+    "active": true,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  },
+  {
+    "id": "CT-024",
+    "name": "Valley Cleanup",
+    "specializations": [
+      "general_restoration"
+    ],
+    "service_areas": [
+      "Synthetic Seattle metro"
+    ],
+    "zip_codes": [
+      "98101"
+    ],
+    "opens_utc": 8,
+    "closes_utc": 18,
+    "available": true,
+    "capacity": 4,
+    "arrival_minutes": 261,
+    "rating": 4.8,
+    "acceptance_rate": 0.84,
+    "completion_rate": 0.963,
+    "estimated_cost_usd": 713,
+    "emergency_capable": false,
+    "active": false,
+    "credentialed": true,
+    "insured": true,
+    "synthetic": true
+  }
+]

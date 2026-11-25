@@ -1,0 +1,7 @@
+[
+  {"case":"eligible","zip":"98101","expected":"awaiting_approval","expected_urgency":"medium","eligible_ids":["CT-001","CT-002"],"required_tools":["search_contractors","check_availability","get_estimated_arrival","get_contractor_performance","get_dispatch_requirements","propose_dispatch"]},
+  {"case":"active-water","zip":"98101","active_water":true,"expected":"awaiting_approval","expected_urgency":"high","eligible_ids":["CT-001","CT-002"],"required_tools":["search_contractors","check_availability","get_estimated_arrival","get_contractor_performance","get_dispatch_requirements","propose_dispatch"]},
+  {"case":"no-eligible","zip":"99501","expected":"requires_intervention","expected_urgency":"medium","eligible_ids":[],"required_tools":["search_contractors"]},
+  {"case":"missing-zip","expected":"requires_intervention","expected_urgency":"medium","eligible_ids":[],"required_tools":[]},
+  {"case":"emergency","emergency":true,"expected":"requires_intervention","expected_urgency":"emergency","eligible_ids":[],"required_tools":[]}
+]
