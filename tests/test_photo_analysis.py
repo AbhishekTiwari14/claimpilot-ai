@@ -235,7 +235,7 @@ def test_existing_v1_database_migrates_with_claim_and_upload_preserved(settings)
         url, _ = claim(api)
         assert upload(api, url).status_code == 201
     with sqlite3.connect(settings.claimpilot_intake_db) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 6
         assert db.execute("SELECT COUNT(*) FROM claims").fetchone()[0] == 2
 
 

@@ -53,7 +53,7 @@ def test_checkpoint_restart_approval_and_idempotency(api, settings, policy_evide
     with TestClient(create_app(settings, embed=fixture_embed, embedding_id="contractor-test-lexical")) as restarted:
         assert checked(restarted.get(url, headers=OPERATOR)) == state
         approved = checked(resume(restarted, url, decision(state)))
-        assert approved["status"] == "approved" and approved["pause_id"] is None
+        assert approved["status"] == "approved" and approved["pause_id"]
         assert checked(resume(restarted, url, decision(state))) == approved
         assert resume(restarted, url, decision(state, "reject")).status_code == 409
         assert resume(restarted, url, decision(state), key="already-consumed").status_code == 409

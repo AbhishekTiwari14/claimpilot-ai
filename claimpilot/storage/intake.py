@@ -146,7 +146,14 @@ class IntakeStore:
 
                 db.execute(WORKFLOW_SCHEMA)
                 db.execute("PRAGMA user_version = 5")
-            elif version != 5:
+                version = 5
+            if version == 5:
+                from claimpilot.storage.dispatch import DISPATCH_MIGRATION
+
+                for statement in DISPATCH_MIGRATION:
+                    db.execute(statement)
+                db.execute("PRAGMA user_version = 6")
+            elif version != 6:
                 raise RuntimeError("Unsupported ClaimPilot database version")
 
     @staticmethod

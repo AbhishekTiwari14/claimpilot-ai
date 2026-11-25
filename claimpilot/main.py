@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
-from typing import Literal
+from datetime import datetime
+from typing import Callable, Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
@@ -19,7 +20,7 @@ from claimpilot.storage.intake import IntakeError
 from claimpilot.storage.contractors import ContractorStore
 from claimpilot.storage.knowledge import KnowledgeStore
 from claimpilot.storage.photos import PhotoStore
-from claimpilot.storage.workflows import WorkflowStore
+from claimpilot.storage.dispatch import DispatchStore
 
 
 class HealthResponse(BaseModel):
@@ -29,10 +30,11 @@ class HealthResponse(BaseModel):
 def create_app(
     settings: Settings | None = None, *, llm: LLMService | None = None,
     embed: Embedding | None = None, embedding_id: str = MODEL,
+    clock: Callable[[], datetime] | None = None,
 ) -> FastAPI:
     settings = settings if settings is not None else Settings()
     store = PhotoStore(settings.claimpilot_intake_db)
-    contractor_store = ContractorStore(settings.claimpilot_intake_db)
+    contractor_store = ContractorStore(settings.claimpilot_intake_db, clock=clock)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -44,7 +46,7 @@ def create_app(
     app.state.settings = settings
     app.state.intake_store = store
     app.state.contractor_store = contractor_store
-    app.state.workflow_store = WorkflowStore(settings.claimpilot_intake_db)
+    app.state.workflow_store = DispatchStore(settings.claimpilot_intake_db, clock=clock)
     app.state.llm = llm if llm is not None else LLMService(settings)
     app.state.knowledge = KnowledgeIndex(
         settings, KnowledgeStore(settings.claimpilot_intake_db), embed=embed, embedding_id=embedding_id,

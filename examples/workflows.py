@@ -31,6 +31,7 @@ def decision(state, action="approve"):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--approve", action="store_true", help="Explicitly approve the synthetic proposal without prompting")
+    parser.add_argument("--dispatch", action="store_true", help="Send and accept the approved simulated dispatch")
     args = parser.parse_args()
     directory = ROOT / "runtime" / f"workflow-demo-{uuid4().hex[:12]}"
     settings = Settings(
@@ -65,6 +66,17 @@ def main():
         print(json.dumps(final))
         if final["status"] != "approved":
             raise SystemExit("The recorded decision did not approve the proposal.")
+        if args.dispatch:
+            sent = checked(restarted.post(f"{url}/dispatch", headers={**OPERATOR, "Idempotency-Key": "send"},
+                                          json={"proposal_id": final["proposal_id"],
+                                                "proposal_version": final["proposal_version"]}))
+            dispatch_id = sent["dispatches"][-1]["id"]
+            result = checked(restarted.post(f"{url}/dispatch/{dispatch_id}/response",
+                                            headers={**OPERATOR, "Idempotency-Key": "accept"},
+                                            json={"outcome": "accepted"}))
+            print(json.dumps(result))
+            if result["workflow"]["status"] != "accepted":
+                raise SystemExit("The simulated contractor did not accept the dispatch.")
 
 
 if __name__ == "__main__":

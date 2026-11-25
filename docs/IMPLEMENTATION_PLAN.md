@@ -85,9 +85,17 @@ Completed. The operator workflow reads confirmed intake, assesses the bound poli
 
 Completed. An operator resumes a native interrupt to approve or reject the exact proposal version. SQLite revalidates eligibility before recording approval. Tests cover stale proposals and replay after a decision commits. Live Groq verification reached approval and resumed in a fresh app instance.
 
-## Future — SLA tracking, reporting and release evaluation
+## Phase 8 — Simulated dispatch and acknowledgement recovery
 
-Add idempotent simulated dispatch, simulator progress events, the due-event scanner, SLA milestones, structured report API and operational/audit views. Build the release evaluation harness and optional Groq comparison.
+Implemented transactional dispatch after exact-version approval, a scoped dispatch summary, operator-driven acknowledgement processing and bounded reassignment with fresh approval.
+
+## Phase 9 — Consolidated evaluation
+
+Implemented `python -m examples.evaluate` for deterministic regressions, offline fixture metrics and optional live Groq verification.
+
+## Future — Arrival and completion tracking, reporting and release evaluation
+
+Add arrival and completion events, scheduled milestone processing, a claim report and operational views. Expand release evaluations.
 
 - An injected clock drives SLA tests without real waits. Duplicate and out-of-order callbacks preserve monotonic state. Each breach is recorded once and completion retains breach history.
 - Completed and closed claims yield reports that reconcile with domain records and their audit cutoff. Reports respect role-based redaction. Optional model summaries use a deterministic fallback.

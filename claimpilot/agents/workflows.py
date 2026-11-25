@@ -14,6 +14,7 @@ from claimpilot.agents.contractors import run_recommendation
 from claimpilot.services.contractor_urgency import classify_urgency
 from claimpilot.services.knowledge_answers import assess_claim
 from claimpilot.storage.intake import IntakeError
+from claimpilot.storage.dispatch import MAX_ATTEMPTS
 
 
 class Transition(TypedDict):
@@ -38,6 +39,7 @@ class WorkflowState(TypedDict, total=False):
     proposal_id: str | None
     proposal_version: int | None
     dispatch_citations: list[str]
+    dispatch_id: str | None
     transitions: Annotated[list[Transition], add]
 
 
@@ -102,11 +104,14 @@ def build_graph(app, actor):
         snapshot = store.snapshot(actor, claim_id)
         if snapshot.fingerprint != state["fingerprint"]:
             return step("contractor", "requires_intervention", "claim_evidence_changed")
+        failed = store.failed(actor, claim_id)
+        if len(failed) >= MAX_ATTEMPTS:
+            return step("contractor", "requires_intervention", "reassignment_limit")
         try:
             run = run_recommendation(
                 store, app.knowledge, app.llm, app.settings, actor.model_copy(update={"operator_id": state["initiator"]}),
                 claim_id, f'workflow:{state["workflow_id"]}:{state["attempt"]}', state["claim_version"],
-                policy_outcome=state["policy_outcome"],
+                policy_outcome=state["policy_outcome"], excluded=failed, allow_sla_defaults=True,
             )
         except IntakeError as error:
             return step("contractor", "requires_intervention", error.code)
@@ -130,12 +135,29 @@ def build_graph(app, actor):
             return step("approval", "approved" if outcome == "approve" else "rejected")
         return step("approval", "requires_intervention", outcome)
 
+    def dispatch(state: WorkflowState):
+        interrupt({"status": "approved", "proposal_id": state["proposal_id"]})
+        try:
+            dispatch_id = store.send(actor, state, store.now())
+        except IntakeError as error:
+            return step("dispatch", "requires_intervention", error.code)
+        return step("dispatch", "awaiting_acknowledgement", dispatch_id=dispatch_id)
+
+    def acknowledgement(state: WorkflowState):
+        choice = interrupt({"status": "awaiting_acknowledgement", "dispatch_id": state["dispatch_id"]})
+        status = store.resolve_dispatch(actor, state, choice["action"], store.now())
+        if status == "accepted":
+            return step("acknowledgement", "accepted")
+        return step("acknowledgement", "checking_intake", status, attempt=state["attempt"] + 1)
+
     graph = StateGraph(WorkflowState)
     graph.add_node("intake", intake)
     graph.add_node("policy", policy)
     graph.add_node("contractor", contractor)
     graph.add_node("review", review)
     graph.add_node("approval", approval)
+    graph.add_node("dispatch", dispatch)
+    graph.add_node("acknowledgement", acknowledgement)
     graph.add_edge(START, "intake")
     graph.add_conditional_edges("intake", lambda s: "policy" if s["status"] == "assessing_policy" else "review",
                                 ["policy", "review"])
@@ -144,6 +166,11 @@ def build_graph(app, actor):
     graph.add_conditional_edges("contractor", lambda s: "approval" if s["status"] == "awaiting_approval" else "review",
                                 ["approval", "review"])
     graph.add_edge("review", "intake")
-    graph.add_conditional_edges("approval", lambda s: "review" if s["status"] == "requires_intervention" else END,
-                                ["review", END])
+    graph.add_conditional_edges("approval", lambda s: {
+        "requires_intervention": "review", "approved": "dispatch", "rejected": END,
+    }[s["status"]], ["review", "dispatch", END])
+    graph.add_conditional_edges("dispatch", lambda s: "acknowledgement" if s["status"] == "awaiting_acknowledgement" else "review",
+                                ["acknowledgement", "review"])
+    graph.add_conditional_edges("acknowledgement", lambda s: END if s["status"] == "accepted" else "intake",
+                                [END, "intake"])
     return graph

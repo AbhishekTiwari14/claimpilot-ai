@@ -94,6 +94,7 @@ class DispatchRequirements(BaseModel):
     acknowledgement_limit_minutes: int
     arrival_limit_minutes: int | None
     sources: list[RequirementSource]
+    provenance: Literal["validated_operations", "synthetic_default"] = "validated_operations"
 
 
 class ProposalDraft(BaseModel):

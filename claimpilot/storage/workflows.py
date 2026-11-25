@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from claimpilot.storage.contractors import ContractorStore
@@ -44,8 +43,8 @@ class WorkflowStore(ContractorStore):
         claim_id = UUID(state["claim_id"])
         with self._connection(write=True) as db:
             snapshot = self._snapshot(db, actor, claim_id)
-            receipt = db.execute("SELECT decision FROM workflow_decisions WHERE workflow_id=?",
-                                 (state["workflow_id"],)).fetchone()
+            receipt = db.execute("SELECT decision FROM workflow_decisions WHERE workflow_id=? AND proposal_id=?",
+                                 (state["workflow_id"], state["proposal_id"])).fetchone()
             if receipt:
                 return receipt["decision"]
             row = db.execute(
@@ -61,8 +60,9 @@ class WorkflowStore(ContractorStore):
             taken = db.execute("SELECT 1 FROM workflow_decisions WHERE proposal_id=?", (row["id"],)).fetchone()
             if taken:
                 return "proposal_already_decided"
-            db.execute("INSERT INTO workflow_decisions VALUES (?,?,?,?,?,?)", (
+            db.execute("""INSERT INTO workflow_decisions
+                       (workflow_id,proposal_id,reviewer_id,decision,reason,decided_at) VALUES (?,?,?,?,?,?)""", (
                 state["workflow_id"], row["id"], choice["reviewer_id"], choice["action"],
-                choice["reason"], datetime.now(timezone.utc).isoformat(),
+                choice["reason"], self.now().isoformat(),
             ))
             return choice["action"]

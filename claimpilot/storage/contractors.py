@@ -68,6 +68,13 @@ class ClaimSnapshot:
 
 
 class ContractorStore(KnowledgeStore):
+    def __init__(self, path: Path, *, clock=None) -> None:
+        super().__init__(path)
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+
+    def now(self) -> datetime:
+        return self._clock().astimezone(timezone.utc)
+
     def seed(self, tenants: set[str]) -> None:
         if not tenants:
             return
@@ -178,6 +185,8 @@ class ContractorStore(KnowledgeStore):
     def _requirements_active(db, actor: Operator, proposal: Proposal) -> bool:
         if proposal.requirements is None:
             return False
+        if proposal.requirements.provenance == "synthetic_default":
+            return not proposal.requirements.sources
         return bool(proposal.requirements.sources) and all(db.execute(
             """SELECT 1 FROM knowledge_chunks c JOIN knowledge_documents d ON d.id=c.document_id
                AND c.generation=d.generation WHERE c.chunk_id=? AND d.tenant_id=?
@@ -186,13 +195,13 @@ class ContractorStore(KnowledgeStore):
         ).fetchone() is not None for source in proposal.requirements.sources)
 
     def _invalidate(self, db, actor: Operator, proposal: Proposal, snapshot: ClaimSnapshot,
-                    claim_fingerprint: str, fingerprints: dict[str, str]) -> Proposal:
+                    claim_fingerprint: str, fingerprints: dict[str, str], *, now=None) -> Proposal:
         if proposal.status != "awaiting_approval":
             return proposal
         from claimpilot.services.contractor_urgency import service_zip
 
         zip_code = service_zip(str(snapshot.facts.get("property_location", "")))
-        now = datetime.now(timezone.utc)
+        now = now if now is not None else self.now()
         stale = (
             snapshot.fingerprint != claim_fingerprint
             or snapshot.claim.version != proposal.claim_version
@@ -218,10 +227,10 @@ class ContractorStore(KnowledgeStore):
             })
         return proposal
 
-    def _proposal(self, db, actor: Operator, row, snapshot: ClaimSnapshot) -> Proposal:
+    def _proposal(self, db, actor: Operator, row, snapshot: ClaimSnapshot, *, now=None) -> Proposal:
         stored = Proposal.model_validate_json(row["proposal_json"])
         current = self._invalidate(db, actor, stored, snapshot, row["claim_fingerprint"],
-                                   json.loads(row["contractor_fingerprints"]))
+                                   json.loads(row["contractor_fingerprints"]), now=now)
         if current.stale and not stored.stale:
             db.execute("UPDATE dispatch_proposals SET proposal_json=? WHERE id=? AND proposal_json=?",
                        (current.model_dump_json(), row["id"], row["proposal_json"]))

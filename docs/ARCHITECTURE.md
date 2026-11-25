@@ -83,7 +83,20 @@ The proposal transaction checks the claim version and fingerprint, current contr
 
 ## Workflow and routing
 
-Phases 6–7 implement a typed LangGraph graph over the existing intake, policy assessment and recommendation services. Incomplete intake and human review pause with `interrupt()`. A potentially covered preliminary assessment with fresh evidence can lead to a contractor proposal and its own approval interrupt. `Command(resume=...)` reopens the exact pause. Human approval records a contractor proposal decision and ends the graph. The downstream dispatch and SLA nodes described below remain future design.
+The typed LangGraph workflow uses native interrupts for intake, review, proposal approval, simulated dispatch and acknowledgement. Approval records the operator's decision and pauses until an explicit dispatch request for the exact version. A SQLite transaction revalidates the claim, latest proposal, approval, eligibility and SLA evidence. It allows one active or accepted dispatch per claim and one dispatch per proposal. Reviewers never approve or deny policy coverage through this graph.
+
+The acknowledgement deadline comes from the verified operations handbook. If no validated handbook evidence is available at proposal generation, the workflow uses labeled synthetic defaults of one hour for urgent acknowledgement and four hours for routine acknowledgement. A cited handbook going stale invalidates the proposal. The injectable UTC clock drives eligibility, decision timestamps and acknowledgement expiry. Rejection or expiry returns through intake and the recommendation agent with failed contractors excluded. Each replacement needs its own approval. Three failed dispatches or an exhausted candidate set route to review. Arrival and completion tracking remain future design.
+
+For the frontend, use the operator endpoints below under `/api/v1/claims/{claim_id}/workflows/{workflow_id}`. Each POST requires an `Idempotency-Key`. Refetch the workflow after errors or a replay to obtain its current proposal and pause.
+
+| Method and path | Input and result |
+| --- | --- |
+| `GET /dispatch` | Workflow state and ordered dispatch summary with reviewer decisions, timestamps, source citations, SLA provenance and outcomes. |
+| `POST /dispatch` | `proposal_id` and `proposal_version` from the approved workflow. Returns the acknowledgement deadline and dispatch ID. |
+| `POST /dispatch/{dispatch_id}/response` | `outcome` of `accepted` or `rejected`. Responses at or after the deadline count as timeouts. |
+| `POST /dispatch/{dispatch_id}/sla` | Empty body. Before the deadline, returns current status. When due, records the breach and attempts recovery. |
+
+Run `uv run --locked --group agents python -m examples.evaluate` for the deterministic suite and offline fixture metrics. Add `--live` to verify one Groq workflow through simulated acceptance.
 
 The checkpointer writes to a sibling `.checkpoints.sqlite3` file with workspace-derived thread IDs. Preserve this file alongside the domain database when restarting or backing up the service. A sibling SQLite lock file serializes workflow mutations for that database. Checkpoints contain evidence references and node transitions. The domain database holds immutable reviewer decisions and revalidates the latest proposal, contractor eligibility and evidence in the same transaction. This makes decision replay safe across a crash between the domain commit and graph checkpoint. [LangGraph interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts)
 

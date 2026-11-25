@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 
@@ -19,9 +18,11 @@ HANDBOOK = Path(__file__).resolve().parents[2] / "data" / "knowledge" / "restora
 
 class ContractorTools:
     def __init__(self, store: ContractorStore, knowledge: KnowledgeIndex, actor: Operator,
-                 zip_code: str, trade: Trade, urgency: Urgency) -> None:
+                 zip_code: str, trade: Trade, urgency: Urgency, *,
+                 excluded: frozenset[str] = frozenset(), allow_sla_defaults: bool = False) -> None:
         self.store, self.knowledge, self.actor = store, knowledge, actor
         self.zip_code, self.trade, self.urgency = zip_code, trade, urgency
+        self.excluded, self.allow_sla_defaults = excluded, allow_sla_defaults
         self.discovered: set[str] = set()
         self.observations: dict[tuple[str, str], BaseModel] = {}
         self.requirements: DispatchRequirements | None = None
@@ -49,10 +50,10 @@ class ContractorTools:
             self.observations[(name, result.contractor_id)] = result
 
     def search_contractors(self, limit: int = 3) -> SearchResults:
-        now = datetime.now(timezone.utc)
+        now = self.store.now()
         candidates = [
             item for item in self.store.contractors(self.actor)
-            if eligible(item, self.zip_code, self.trade, now)
+            if item.id not in self.excluded and eligible(item, self.zip_code, self.trade, now)
         ]
         candidates.sort(key=lambda item: (item.arrival_minutes, -item.completion_rate, -item.rating, item.id))
         return SearchResults(candidate_ids=[item.id for item in candidates[:limit]])
@@ -67,7 +68,7 @@ class ContractorTools:
 
     def _availability(self, item: Contractor) -> Availability:
         return Availability(contractor_id=item.id, eligible=eligible(
-            item, self.zip_code, self.trade, datetime.now(timezone.utc)), capacity=item.capacity)
+            item, self.zip_code, self.trade, self.store.now()), capacity=item.capacity)
 
     def get_estimated_arrival(self, contractor_id: str) -> Arrival:
         item = self._discovered(contractor_id)
@@ -90,6 +91,12 @@ class ContractorTools:
         sections = {item.section: item for item in chunks if item.content_hash == approved}
         required = ("O1 Contractor dispatch", "O2 SLA and escalation")
         if any(section not in sections for section in required):
+            if self.allow_sla_defaults:
+                return DispatchRequirements(
+                    acknowledgement_limit_minutes=60 if self.urgency == "high" else 240,
+                    arrival_limit_minutes=240 if self.urgency == "high" else 1440,
+                    sources=[], provenance="synthetic_default",
+                )
             raise IntakeError(422, "requirements_unavailable", "Index the approved synthetic operations handbook.")
         approval, sla = (sections[section].text for section in required)
         if ("authorized human approval" not in approval
@@ -123,7 +130,7 @@ class ContractorTools:
         cap = requirements.arrival_limit_minutes
         if cap is not None and details[1][1].minutes > cap:
             raise IntakeError(422, "arrival_exceeds_sla", "The estimate exceeds the applicable arrival limit.")
-        now = datetime.now(timezone.utc)
+        now = self.store.now()
         alternatives = [
             item for item in self.store.contractors(self.actor)
             if item.id != contractor_id and item.id in self.discovered

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -25,6 +26,21 @@ class ResumeWorkflow(BaseModel):
     proposal_id: UUID | None = None
     proposal_version: int | None = Field(default=None, ge=1, strict=True)
     reason: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] = ""
+
+
+class SendDispatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    proposal_id: UUID
+    proposal_version: int = Field(ge=1, strict=True)
+
+
+class ContractorResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    outcome: Literal["accepted", "rejected"]
+
+
+class ProcessSLA(BaseModel):
+    dispatch_id: UUID
 
 
 def graph_config(actor, claim_id, workflow_id):
@@ -101,6 +117,8 @@ def resume(claim_id: UUID, workflow_id: UUID, payload: ResumeWorkflow, actor: Ac
                     or payload.proposal_version != previous["proposal_version"]
                     or payload.expected_version != previous["claim_version"]):
                     raise IntakeError(409, "decision_mismatch", "Specify the paused proposal, versions and decision reason.")
+            elif previous["status"] not in ("requires_intervention", "awaiting_information"):
+                raise IntakeError(409, "dispatch_endpoint_required", "Use the dispatch endpoints for this pause.")
             elif payload.action != "retry" or payload.expected_version != claim.version:
                 raise IntakeError(409, "retry_mismatch", "Retry using the current claim version.")
         replay = app.workflow_store.reserve_resume(actor, workflow_id, key, payload, matches)
@@ -110,3 +128,75 @@ def resume(claim_id: UUID, workflow_id: UUID, payload: ResumeWorkflow, actor: Ac
         elif replay and state.next and not current_pause(state):
             invoke(graph, config, None)
         return view(graph.get_state(config))
+
+
+def dispatch_summary(app, actor, claim_id, workflow_id, state):
+    return {"workflow": view(state), "dispatches": app.workflow_store.dispatch_history(actor, claim_id, workflow_id)}
+
+
+@router.get("/{workflow_id}/dispatch")
+def dispatch_status(claim_id: UUID, workflow_id: UUID, actor: Actor, request: Request) -> dict:
+    from claimpilot.agents.workflows import workflow_graph
+
+    app = request.app.state
+    app.workflow_store.snapshot(actor, claim_id)
+    with workflow_graph(app, actor, mutate=False) as graph:
+        return dispatch_summary(app, actor, claim_id, workflow_id,
+                                graph.get_state(graph_config(actor, claim_id, workflow_id)))
+
+
+def dispatch_command(claim_id, workflow_id, actor, app, key, payload, *, action, dispatch_id=None):
+    from langgraph.types import Command
+    from claimpilot.agents.workflows import workflow_graph
+
+    config = graph_config(actor, claim_id, workflow_id)
+    with workflow_graph(app, actor, mutate=True) as graph:
+        app.workflow_store.snapshot(actor, claim_id)
+        state = graph.get_state(config)
+        current = view(state)
+        if action == "send":
+            matches = (current["status"] == "approved" and current["proposal_id"] == str(payload.proposal_id)
+                       and current["proposal_version"] == payload.proposal_version)
+            if matches and not current_pause(state) and not state.next:
+                # Pre-dispatch versions of the workflow ended at approval.
+                graph.update_state(config, {}, as_node="approval")
+                invoke(graph, config, None)
+                state = graph.get_state(config)
+        else:
+            history = app.workflow_store.dispatch_history(actor, claim_id, workflow_id)
+            record = next((row for row in history if row["id"] == str(dispatch_id)), None)
+            if record is None:
+                raise IntakeError(404, "dispatch_not_found", "Dispatch not found.")
+            matches = current["status"] == "awaiting_acknowledgement" and current["dispatch_id"] == str(dispatch_id)
+            if (matches and action == "sla" and record["status"] == "awaiting_acknowledgement"
+                and app.workflow_store.now() < datetime.fromisoformat(record["acknowledgement_deadline"])):
+                return dispatch_summary(app, actor, claim_id, workflow_id, state)
+        pause = current_pause(state)
+        scope = "send" if action == "send" else f"{'sla' if action == 'sla' else 'response'}:{dispatch_id}"
+        replay = app.workflow_store.reserve_resume(actor, workflow_id, f"dispatch:{scope}:{key}", payload,
+                                                   matches and pause is not None)
+        if matches and pause:
+            invoke(graph, config, Command(resume={pause.id: {"action": action}}))
+        elif replay and state.next and not pause:
+            invoke(graph, config, None)
+        return dispatch_summary(app, actor, claim_id, workflow_id, graph.get_state(config))
+
+
+@router.post("/{workflow_id}/dispatch")
+def send_dispatch(claim_id: UUID, workflow_id: UUID, payload: SendDispatch, actor: Actor,
+                  key: RequestKey, request: Request) -> dict:
+    return dispatch_command(claim_id, workflow_id, actor, request.app.state, key, payload, action="send")
+
+
+@router.post("/{workflow_id}/dispatch/{dispatch_id}/response")
+def respond_to_dispatch(claim_id: UUID, workflow_id: UUID, dispatch_id: UUID, payload: ContractorResponse,
+                        actor: Actor, key: RequestKey, request: Request) -> dict:
+    return dispatch_command(claim_id, workflow_id, actor, request.app.state, key, payload,
+                            action=payload.outcome, dispatch_id=dispatch_id)
+
+
+@router.post("/{workflow_id}/dispatch/{dispatch_id}/sla")
+def process_sla(claim_id: UUID, workflow_id: UUID, dispatch_id: UUID, actor: Actor,
+                key: RequestKey, request: Request) -> dict:
+    return dispatch_command(claim_id, workflow_id, actor, request.app.state, key,
+                            ProcessSLA(dispatch_id=dispatch_id), action="sla", dispatch_id=dispatch_id)

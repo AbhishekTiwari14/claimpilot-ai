@@ -1,5 +1,4 @@
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
-from datetime import datetime, timezone
 import json
 import re
 import sqlite3
@@ -72,6 +71,7 @@ def safe_result(result: BaseModel) -> dict:
 def run_recommendation(
     store: ContractorStore, knowledge: KnowledgeIndex, llm: LLMService, settings: Settings,
     actor: Operator, claim_id: UUID, key: str, expected_version: int, *, policy_outcome: str | None = None,
+    excluded: frozenset[str] = frozenset(), allow_sla_defaults: bool = False,
 ) -> RunView:
     offline = settings.claimpilot_llm_provider == "offline"
     reserved = store.reserve_run(
@@ -88,7 +88,7 @@ def run_recommendation(
     trade = specialization(facts)
     proposal = Proposal(
         id=uuid4(), run_id=run_id, claim_id=claim_id, claim_version=expected_version,
-        version=0, urgency=urgency, required_specialization=trade, created_at=datetime.now(timezone.utc),
+        version=0, urgency=urgency, required_specialization=trade, created_at=store.now(),
         explanation="An operator must review the available evidence.", status="requires_intervention",
     )
     reason = None
@@ -123,7 +123,8 @@ def run_recommendation(
         proposal.uncertainties.append("policy_evidence_conflicts")
         return store.finish_run(actor, proposal, trace, snapshot, {})
 
-    tools = ContractorTools(store, knowledge, actor, zip_code, trade, urgency.level)
+    tools = ContractorTools(store, knowledge, actor, zip_code, trade, urgency.level,
+                            excluded=excluded, allow_sla_defaults=allow_sla_defaults)
     definitions = tools.definitions()
     tool_map = {tool.name: tool for tool in definitions}
     context = json.dumps({
