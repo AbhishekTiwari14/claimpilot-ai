@@ -83,6 +83,12 @@ The proposal transaction checks the claim version and fingerprint, current contr
 
 ## Workflow and routing
 
+Phases 6–7 implement a typed LangGraph graph over the existing intake, policy assessment and recommendation services. Incomplete intake and human review pause with `interrupt()`. A potentially covered preliminary assessment with fresh evidence can lead to a contractor proposal and its own approval interrupt. `Command(resume=...)` reopens the exact pause. Human approval records a contractor proposal decision and ends the graph. The downstream dispatch and SLA nodes described below remain future design.
+
+The checkpointer writes to a sibling `.checkpoints.sqlite3` file with workspace-derived thread IDs. Preserve this file alongside the domain database when restarting or backing up the service. A sibling SQLite lock file serializes workflow mutations for that database. Checkpoints contain evidence references and node transitions. The domain database holds immutable reviewer decisions and revalidates the latest proposal, contractor eligibility and evidence in the same transaction. This makes decision replay safe across a crash between the domain commit and graph checkpoint. [LangGraph interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts)
+
+Operators use `POST /api/v1/claims/{claim_id}/workflows` with `expected_version`, `GET /api/v1/claims/{claim_id}/workflows/{workflow_id}`, and `POST` on the same resource with `/resume` appended. Both POSTs require an idempotency key. Resume takes the current `pause_id`, `action` and claim `expected_version`. Approval and rejection also take `proposal_id`, `proposal_version` and a reason. Use `retry` after updating intake or resolving the review issue. Run `uv run --locked --group agents python -m examples.workflows` for a live synthetic demonstration with an approval prompt.
+
 Persist one LangGraph thread per claim. Validated server-side events resume the relevant interrupt with their stored event ID. Pause nodes contain only the interrupt and return the resume input for validation in the next node. LangGraph may execute a paused node again on resume. [LangGraph persistence](https://docs.langchain.com/oss/python/langgraph/persistence) · [LangGraph interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts)
 
 | Node | Decision and outgoing paths |

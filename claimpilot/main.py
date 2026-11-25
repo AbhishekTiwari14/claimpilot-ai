@@ -11,6 +11,7 @@ from claimpilot.api.intake import router
 from claimpilot.api.contractors import router as contractors_router
 from claimpilot.api.knowledge import router as knowledge_router
 from claimpilot.api.photos import router as photos_router
+from claimpilot.api.workflows import router as workflows_router
 from claimpilot.config import Settings
 from claimpilot.services.knowledge_index import MODEL, Embedding, KnowledgeIndex
 from claimpilot.services.llm import LLMService
@@ -18,6 +19,7 @@ from claimpilot.storage.intake import IntakeError
 from claimpilot.storage.contractors import ContractorStore
 from claimpilot.storage.knowledge import KnowledgeStore
 from claimpilot.storage.photos import PhotoStore
+from claimpilot.storage.workflows import WorkflowStore
 
 
 class HealthResponse(BaseModel):
@@ -42,6 +44,7 @@ def create_app(
     app.state.settings = settings
     app.state.intake_store = store
     app.state.contractor_store = contractor_store
+    app.state.workflow_store = WorkflowStore(settings.claimpilot_intake_db)
     app.state.llm = llm if llm is not None else LLMService(settings)
     app.state.knowledge = KnowledgeIndex(
         settings, KnowledgeStore(settings.claimpilot_intake_db), embed=embed, embedding_id=embedding_id,
@@ -50,6 +53,7 @@ def create_app(
     app.include_router(photos_router)
     app.include_router(knowledge_router)
     app.include_router(contractors_router)
+    app.include_router(workflows_router)
 
     @app.exception_handler(IntakeError)
     async def intake_error(_: Request, error: IntakeError) -> JSONResponse:

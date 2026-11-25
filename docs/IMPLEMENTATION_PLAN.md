@@ -77,15 +77,23 @@ Seed fictional contractors per workspace. Add a bounded Groq tool loop, determin
 
 See [Phase 5 API, examples and evaluation](CONTRACTOR_API.md).
 
-## Phase 6 — SLA tracking, reporting and release evaluation
+## Phase 6 — LangGraph orchestration
 
-Add human approval execution, idempotent simulated dispatch, simulator progress events, the due-event scanner, SLA milestones, structured report API and operational/audit views. Build the end-to-end offline evaluation harness and optional Groq comparison.
+Completed. The operator workflow reads confirmed intake, assesses the bound policy, and invokes contractor recommendation. Missing facts pause for intake updates. Hazards, insufficient or conflicting evidence, and empty contractor searches pause for review. Tests cover routing, restart, idempotency and workspace isolation.
+
+## Phase 7 — Human approval
+
+Completed. An operator resumes a native interrupt to approve or reject the exact proposal version. SQLite revalidates eligibility before recording approval. Tests cover stale proposals and replay after a decision commits. Live Groq verification reached approval and resumed in a fresh app instance.
+
+## Future — SLA tracking, reporting and release evaluation
+
+Add idempotent simulated dispatch, simulator progress events, the due-event scanner, SLA milestones, structured report API and operational/audit views. Build the release evaluation harness and optional Groq comparison.
 
 - An injected clock drives SLA tests without real waits. Duplicate and out-of-order callbacks preserve monotonic state. Each breach is recorded once and completion retains breach history.
 - Completed and closed claims yield reports that reconcile with domain records and their audit cutoff. Reports respect role-based redaction. Optional model summaries use a deterministic fallback.
 - The offline suite completes the entire synthetic workflow with zero API keys. Scorecards include dataset, rules and prompt versions, provider/model, scenario counts, failure reasons and latency percentiles.
 
-## Phase 7 — V1 interfaces
+## Future — V1 interfaces
 
 Build three React/TypeScript interfaces with Tailwind and shadcn/ui against generated OpenAPI types. The customer portal provides conversation, damage photo uploads and claim tracking. The operations dashboard shows agent execution, reviewer inbox, approvals, dispatch, SLA timeline and audit. The knowledge base provides document management, index status and a cited RAG playground.
 

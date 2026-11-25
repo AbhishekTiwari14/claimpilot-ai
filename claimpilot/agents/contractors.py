@@ -71,7 +71,7 @@ def safe_result(result: BaseModel) -> dict:
 
 def run_recommendation(
     store: ContractorStore, knowledge: KnowledgeIndex, llm: LLMService, settings: Settings,
-    actor: Operator, claim_id: UUID, key: str, expected_version: int,
+    actor: Operator, claim_id: UUID, key: str, expected_version: int, *, policy_outcome: str | None = None,
 ) -> RunView:
     offline = settings.claimpilot_llm_provider == "offline"
     reserved = store.reserve_run(
@@ -114,8 +114,7 @@ def run_recommendation(
             proposal.explanation = "A potential immediate hazard requires human safety review."
         return store.finish_run(actor, proposal, trace, snapshot, {})
 
-    policy_outcome = None
-    if snapshot.binding:
+    if snapshot.binding and policy_outcome is None:
         try:
             policy_outcome = assess_claim(knowledge, llm, actor, claim_id).assessment.outcome
         except IntakeError:
