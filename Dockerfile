@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
     && install -d -o claimpilot -g claimpilot /runtime
 COPY pyproject.toml uv.lock ./
 COPY --from=uv /uv /usr/local/bin/uv
-RUN UV_NO_CACHE=1 UV_PYTHON_DOWNLOADS=never uv sync --locked --no-dev --group agents --no-install-projectt
+RUN UV_NO_CACHE=1 UV_PYTHON_DOWNLOADS=never uv sync --locked --no-dev --group agents --no-install-project
 COPY claimpilot/ claimpilot/
 COPY data/contractors/ data/contractors/
 COPY data/knowledge/ data/knowledge/
