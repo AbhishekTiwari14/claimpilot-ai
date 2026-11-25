@@ -48,16 +48,7 @@ The response includes a versioned proposal with `awaiting_approval`, `requires_i
 
 [The five labeled cases](../data/contractors/evaluation.json) include eligible, active water, no eligible contractor, missing ZIP, and emergency scenarios. The scorer checks required successful tools as a set, so alternative sequences can pass. It records contractor eligibility, success among eligible cases, escalation among other cases and unauthorized proposals. Each trace includes tool-result call IDs appearing in subsequent model requests, output status, timings and provider token counts when supplied.
 
-The offline evaluation passed with the following measured results.
-
-| Metric | Result |
-| --- | ---: |
-| Valid tool executions | 13 / 13 |
-| Required information retrieved in discovery scenarios | 3 / 3 |
-| Eligible recommendations | 2 / 2 |
-| Recommendations in eligible scenarios | 2 / 2 |
-| Correct escalation | 3 / 3 |
-| Unauthorized actions | 0 |
+See the [evaluation summary](EVALUATION.md) for the offline scorecard.
 
 ## Recorded live verification
 

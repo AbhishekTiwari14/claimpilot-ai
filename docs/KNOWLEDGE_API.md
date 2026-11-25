@@ -66,14 +66,6 @@ Upload requires one document, a JSON metadata field and an idempotency key. It r
 
 The [labeled dataset](../data/knowledge/evaluation.json) includes four answerable questions, one conflicting-policy case, one unsupported question and two out-of-scope questions. The final run used local all-MiniLM-L6-v2 ONNX embeddings with 384 dimensions, ChromaDB 1.5.9 and live GPT-OSS 20B. It reopened the Windows Chroma directory in a new process with `--skip-seed`. The four documents were originally uploaded through the API.
 
-| Measure | Final result |
-| --- | --- |
-| Retrieval Hit@5 on cases with relevant labels | 5/5 |
-| All labeled sections present in the top five | 5/5 |
-| Citations with valid IDs and exact stored excerpts | 6/6 |
-| Expected answer outcomes, including scope isolation | 8/8 |
-| Required evidence terms present in cited text | 5/5 |
-
-Hit@5 counts at least one labeled section. The support check compares required terms against the cited text. Manual inspection confirmed the relevant appliance terms, both competing fire deductibles and the urgent acknowledgement deadline. These results describe this eight-case corpus. The regular test suite injects deterministic lexical embeddings while exercising actual local Chroma persistence and SQLite authorization.
+See the [evaluation summary](EVALUATION.md) for the scorecard. Manual inspection confirmed the relevant appliance terms, both competing fire deductibles and the urgent acknowledgement deadline. The regular test suite injects deterministic lexical embeddings while exercising actual local Chroma persistence and SQLite authorization.
 
 The first live run reached 5/8 expected outcomes. The shared model contract allowed claim-assessment categories in standalone answers, and the validator rejected them. The final run used separate contracts for playground questions and policy assessment, with numbered model selections resolved to whole stored clauses.

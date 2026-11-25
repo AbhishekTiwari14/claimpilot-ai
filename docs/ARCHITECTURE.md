@@ -1,251 +1,70 @@
 # ClaimPilot AI architecture
 
-## Scope and reference research
+## Runtime architecture
 
-ClaimPilot handles synthetic property claims and simulated restoration operations. It collects customer reports, grounds policy guidance in versioned clauses, triages urgency, proposes contractors, waits for human approval, tracks service milestones, and produces an audited report. Coverage adjudication, payment, emergency-service contact, and live dispatch are outside this design.
+```mermaid
+flowchart LR
+    Browser["React customer portal, operator dashboard and knowledge base"]
+    API["FastAPI /api/v1 and Pydantic contracts"]
+    Intake["Conversational intake and photo analysis"]
+    Knowledge["Policy RAG and document indexing"]
+    Graph["LangGraph workflow and contractor tools"]
+    Groq["Groq text and vision inference"]
+    Embeddings["Local ONNX MiniLM embeddings"]
+    DB[("SQLite claims, uploads, proposals and audit history")]
+    Index[("Chroma vector index")]
+    Checkpoints[("SQLite graph checkpoints")]
+    Browser --> API
+    API --> Intake & Knowledge & Graph
+    Intake --> DB & Groq
+    Knowledge --> DB & Embeddings & Groq
+    Embeddings --> Index
+    Knowledge --> Index
+    Graph --> Knowledge & DB & Groq & Checkpoints
+```
 
-- Insurance Agentic AI documents specialized intake and policy agents, typed boundaries, policy retrieval, and a graph that can interrupt for review. ClaimPilot applies that separation to property restoration with claim-specific evidence and a dispatch gate. [Insurance Agentic AI](https://github.com/mohanhundre1/insurance-agentic-ai#architecture)
-- ClaimLens documents bounded tool use, rules that govern routing, human authorization, an append-only event log, and a credential-free evaluation gate. ClaimPilot adopts those patterns using relational claim records and an append-only activity history. Its restoration workflow uses independently specified rules and contracts. [ClaimLens](https://github.com/kb2326/claimlens)
-- Research used the public repository documentation and publication listings. ClaimPilot source, workflow, schema and contracts were authored independently.
+Offline mode substitutes fixture inference and, in the frontend demo runner, lexical embeddings. The browser calls typed REST endpoints. FastAPI uses separate bearer credentials for claimants and operators, and resolves workspace membership server-side. Claims are scoped to their owner and workspace. The local interactive launcher issues both roles for each isolated synthetic visitor workspace.
 
-## V1 interfaces and access
+- **Intake.** The model extracts report excerpts under a structured contract. The application merges candidates with message provenance, applies explicit corrections, asks about unresolved facts and requires version-bound customer confirmation. Immediate hazard handling uses application rules.
+- **Photos.** The API validates image content and limits bytes, dimensions and decoded pixels. Accepted images are normalized to JPEG with metadata stripped. Observations and tentative interpretations stay separate from confirmed facts. Deleting a photo invalidates dependent analyses.
+- **Knowledge.** Extraction supports PDF, DOCX, TXT and Markdown. SQLite holds document metadata and authoritative text. Chroma is a rebuildable projection. Retrieval is scoped by workspace and document scope, including policy ID and version where applicable. Document content is untrusted. The answer model has no tools and selects evidence by number. The server resolves selections to authorized stored clauses and returns exact excerpts. Policy assessment is advisory and can route conflicting or insufficient evidence to human review.
+- **Contractors.** A bounded Groq tool loop retrieves scoped records for search, availability, arrival estimates, performance and requirements. Result IDs correlate tool outputs with subsequent model turns. Application rules determine urgency, eligibility and SLA requirements. Only the bundled operations handbook can supply authoritative synthetic dispatch requirements. The final proposal is validated, versioned and expiring.
 
-| Interface | V1 scope |
+## LangGraph workflow
+
+```mermaid
+flowchart TD
+    Start([Operator starts workflow]) --> Intake[Check confirmed intake and hazards]
+    Intake -->|Ready| Policy[Assess bound policy version]
+    Intake -->|Missing facts or hazard| Review[Interrupt for human review]
+    Policy -->|Proceed| Contractor[Run contractor recommendation tools]
+    Policy -->|Policy concern or unavailable evidence| Review
+    Contractor -->|Eligible proposal| Approval[Interrupt for exact-version approval]
+    Contractor -->|No eligible proposal| Review
+    Review -->|Operator retries after review| Intake
+    Approval -->|Approved| Send[Interrupt until operator sends simulated dispatch]
+    Approval -->|Invalid or stale| Review
+    Approval -->|Rejected| Stop([End without dispatch])
+    Send -->|Revalidation fails| Review
+    Send -->|Sent| Ack[Interrupt for simulated acknowledgement]
+    Ack -->|Accepted| Done([End workflow with accepted dispatch])
+    Ack -->|Rejection or due SLA action| Intake
+```
+
+The graph persists native interrupts in a sibling SQLite checkpoint database so the authorized operator can resume a run after restart when its storage and credentials persist. Dispatch revalidates approval and eligibility transactionally. Idempotency keys, version checks, dispatch attempt records and a SQLite workflow lock protect retry and reentry. Reassignment can produce a new proposal that requires fresh approval. SLA processing is operator-triggered and uses the server clock. [Graph implementation](../claimpilot/agents/workflows.py)
+
+## Safeguards and trade-offs
+
+| Safeguard or decision | Trade-off |
 | --- | --- |
-| Customer portal | Conversational claim intake, damage photograph uploads, clarification requests, and claim and restoration status for the claimant's own cases. |
-| Operations dashboard | Agent execution status, elapsed time and outcomes, evidence review, human dispatch approval, contractor job status, SLA milestones, and ordered audit history. |
-| Knowledge base | Preloaded synthetic documents, PDF/DOCX/TXT/MD uploads, document version and indexing management, and a RAG playground with verifiable source citations. |
+| Workspace-scoped bearer credentials, scoped evidence lookups and typed validation | Credentials suit a local pilot. A public demo needs expiring visitor sessions, abuse controls and isolation tests. |
+| Model suggestions, deterministic routing and versioned human approval | Operators retain control at each consequential step. Ambiguity and stale proposals require intervention. |
+| SQLite domain state and separate graph checkpoints, with Chroma as a derived index | Few moving parts for a single host. Workflow locking and synchronous provider or indexing calls constrain concurrency. Backups must preserve consistent domain and checkpoint state. |
+| Whole-clause citations resolved by the server | Citations retain conditions and provenance. Semantic support still needs evaluation and operator judgment. |
+| Bounded model retries, sanitized trace metadata and synthetic fixtures | Offline runs are reproducible. Live responses, latency, rate limits and ambiguous inputs require broader validation. |
 
-A workspace is the tenant boundary represented by `tenant_id` in storage. Resolve workspace membership and role from authenticated server context. Claimants see their own claims. Reviewers see operational data within their workspace. Knowledge managers manage workspace documents and can run playground queries against authorized scopes. Playground queries perform read-only retrieval and generation without modifying claim state.
+The pilot ends at simulated acknowledgement and reassignment. Arrival and completion tracking, scheduled SLA processing, formal claim reports, OCR for scanned PDFs, production identity and live dispatch are future work. Real claim handling would also require privacy and retention controls, operational monitoring, recovery drills, and broader held-out evaluations. [Deployment audit](DEPLOYMENT.md) · [Implementation history](IMPLEMENTATION_PLAN.md)
 
-## Runtime boundaries
+## Design references
 
-| Component | Responsibility |
-| --- | --- |
-| `claimpilot/main.py`, future `api/` | FastAPI liveness, authenticated REST, request limits, DTO validation, role and claim access checks |
-| `schemas/` | Pydantic API, agent output, tool I/O, report and event contracts |
-| `agents/` | Intake extracts candidate facts and quotes. Policy summarizes cited clauses. Triage extracts hazard signals. Report narrative can summarize verified facts. |
-| `tools/` | Typed, scoped capabilities with validated inputs and bounded outputs |
-| `services/` | Claim merging, retrieval, urgency rules, ranking, review authorization, simulated dispatch and SLA rules |
-| `orchestration/` | LangGraph StateGraph nodes, conditional routes, interrupt/resume and worker |
-| `storage/` | Versioned SQLite migrations, transactions and repository queries. Chroma policy index adapter. |
-| `tests/`, future `evals/` | Unit, graph, API and crash-path tests. Versioned synthetic scenarios and score runner. |
-
-The backend serves health, conversational intake, damage photos, knowledge and contractor recommendations. Intake, photo analysis, indexing and recommendation use synchronous calls with a persisted reservation before provider I/O or compute. The planned workflow worker will serialize downstream graph execution per claim and scan due SLAs and approval expiry. The future React/TypeScript client uses versioned OpenAPI types, Tailwind and shadcn/ui. [FastAPI settings](https://fastapi.tiangolo.com/advanced/settings/) · [shadcn/ui Vite setup](https://ui.shadcn.com/docs/installation/vite)
-
-### Phase 1 model boundary
-
-`LLMService` owns the ChatGroq integration, strict JSON Schema requests, timeouts, retries, and metadata logging. `GROQ_MODEL` defaults to `openai/gpt-oss-20b`, which Groq lists for strict schema output and local tool calling, with free-plan limits of 30 requests/minute, 1,000 requests/day, 8,000 tokens/minute and 200,000 tokens/day. Exact limits may vary by account. Strict schema extraction and future tool calling use separate requests. `GROQ_VISION_MODEL` is independently configurable and defaults to the documented multimodal `qwen/qwen3.8-27b`. Phase 1 makes text requests. [ChatGroq](https://docs.langchain.com/oss/python/integrations/chat/groq) · [Groq structured outputs](https://console.groq.com/docs/structured-outputs) · [Groq tool support](https://console.groq.com/docs/tool-use/overview) · [Groq free-plan limits](https://console.groq.com/docs/rate-limits) · [Groq vision](https://console.groq.com/docs/vision)
-
-`agents/intake.py` validates a single report and calls the service using the versioned prompt in `prompts/claim_extraction.py`. The report occupies a separate role message as JSON data. Every populated field must match a case-sensitive excerpt in the source. Missing values are null, conflicts retain both excerpts, and the list of missing fields is computed locally. Excerpt validation verifies presence and preserves original wording, while semantic assignment remains a model task. Operational use requires confirmation before promoting candidates to facts.
-
-Offline mode replays the bundled single-report and multi-turn synthetic fixtures through the same validator. Unrecognized offline reports return a typed unsupported-input error. Groq failures return a typed error without substituting a fixture. The service defaults to a 12-second HTTP timeout per attempt and one retry. Retry only for transient failures and respect numeric `Retry-After` when within the five-second retry delay budget. Logs contain the model, operation/prompt version, total latency, retries, outcome and token counts when supplied. Raw prompts, provider errors, keys, and reasoning stay out of application logs. LangSmith tracing is disabled for extraction.
-
-### Phase 2 conversational intake
-
-A conversation and its claim get separate UUIDs. FastAPI authenticates local synthetic claimant tokens from configuration and resolves the workspace and claimant on the server. SQLite scopes reads and writes by both identities. The history returns message UUIDs, roles, timestamps and a pagination sequence. A file-backed SQLite database uses foreign keys, rollback journaling, a schema version and short write transactions. [SQLite transactions](https://docs.python.org/3.11/library/sqlite3.html)
-
-The intake agent sends the latest report and the field it last asked about to the existing extraction service. Earlier evidence stays in SQLite. The rules merge verbatim candidates with message provenance, preserve equal and unrelated answers, surface conflicting values and accept explicit corrections or a direct clarification. The next question is selected from unresolved fields. It can cite the competing answers or previously reported damage areas. The suspected cause is optional and keeps the customer's words of uncertainty.
-
-The required fields are damage type, affected areas, property location, incident time, policy ID and current hazards, including an explicit denial when applicable. Intake collects reported details. Catalog verification, date normalization and downstream urgency classification occur later. The five intake states are `collecting_information`, `awaiting_clarification`, `awaiting_customer_confirmation`, `intake_completed` and `human_assistance_required`. A conservative screen checks explicit immediate danger before any model call and returns a safety-first reply with the human-assistance state. Three consecutive unresolved turns without progress also route to human assistance. An explicit confirmation POST for the current version promotes the snapshot from candidate evidence to customer-confirmed evidence. It confirms what the customer reported, including the uncertainty of a suspected cause.
-
-A write transaction saves the input message and idempotency record before extraction. A second write transaction saves the assistant reply, next state and replay response together. Versions reject stale writes. A repeat with the same key and payload replays the stored response or resumes pending work after failure or restart. Concurrent identical requests may both perform extraction while pending. They can commit only one reply and state change. A failed turn remains in history and can be retried or explicitly replaced. A report that triggers the immediate safety screen can supersede pending routine work. Terminal intake states stop routine writes. Human-assistance routing records the status and reason without contacting an outside service.
-
-Phase 2 uses `claims` with a versioned intake snapshot and pending message metadata, `claim_messages` with ordered history, and `idempotency_requests` scoped by claimant, workspace and route. The following workflow and persistence sections define the downstream design.
-
-### Documents, indexing and source isolation
-
-Phase 4 uses separate workspace operator credentials. Operators classify uploads into a policy ID and exact version or the operations collection. A policy document can also restrict its subject to a claimant. Shared forms are available in the playground, which requires an explicit scope. Assessments read confirmed intake and an operator-assigned version for that claim's confirmed policy ID. Their scope includes shared forms and that claimant's restricted documents. A claim requires an explicit binding even if only one version exists.
-
-PDF, DOCX, UTF-8 TXT and Markdown uploads are checked for file content and size. The service extracts text and its page or section locator without running embedded content. A PDF without extractable text returns an explicit error. SQLite stores normalized text, document metadata and content hashes. Identical bytes are deduplicated within their workspace and scope. Upload attempts indexing synchronously after reserving the document in SQLite. Each indexing attempt uses a generation in its chunk IDs. The registry shows pending, indexing, ready or failed. A generation becomes searchable after all of its vectors and authoritative chunks have committed. A document is unavailable during reindex. Deletion removes its authoritative content immediately and attempts cleanup across the local vector projections.
-
-The index uses LangChain's recursive splitter within each page or section, defaulting to 800 characters with 150 characters of overlap. Chroma persists cosine embeddings and scope metadata. A collection name incorporates the database identity, the model identity and the splitter configuration. The local all-MiniLM-L6-v2 ONNX model batches on CPU and uses a persistent cache. Before Chroma queries, SQLite selects the exact workspace, policy/version, subject and ready generations. The service checks all returned IDs again and removes overlapping hits. Rebuild uses stored sections, and relevance uses rank without an uncalibrated distance cutoff. [Chroma embeddings](https://docs.trychroma.com/docs/embeddings/embedding-functions) · [LangChain splitter](https://docs.langchain.com/oss/python/integrations/splitters/recursive_text_splitter)
-
-The answer service treats uploaded content as untrusted text and gives the model no tools. The model selects numbered evidence. The service resolves each selection to an authorized chunk and supplies its real ID and complete excerpt from SQLite. Publishing the whole retrieved clause preserves conditions and negation. Missing support produces an explicit insufficient-evidence outcome. Policy assessment returns advisory outcomes and evidence grouped by coverage, exclusion, deductible and limitation. It always recommends human review. The assessment cannot mutate claim facts or approve or deny coverage. Citation validity and support for the question are separate evaluation measures.
-
-### Photograph observations and confirmed facts
-
-Phase 3 checks workspace and claimant through the existing claim scope before accepting a photo. A bounded multipart parser limits upload size. Pillow decodes single-frame JPEG, PNG or WebP, checks edge and pixel counts before loading pixels, applies orientation, and encodes a clean JPEG to remove metadata and trailing data. The upload filename has no role in storage. A generated UUID identifies a local SQLite BLOB, and a per-claim unique index deduplicates the normalized content by SHA-256. File bytes and metadata commit together. [Pillow image handling](https://pillow.readthedocs.io/en/stable/reference/Image.html)
-
-An analysis links one to three selected photo UUIDs and stores its provider, model, attempt count, status, and typed report separately from claim facts. The existing LLM service sends normalized JPEGs as data URLs to the configurable Qwen vision model using documented JSON mode. Local validation checks the exact image IDs and order, bounds lists and rejects unsupported safety claims and extra fields. Direct visible indicators, materials and areas are distinct from apparent severity, tentative safety cues and suggested trades. The prompt treats photos, embedded text and customer context as untrusted. [Groq vision](https://console.groq.com/docs/vision)
-
-SQLite reserves the analysis and stores selected IDs before model I/O. Failed analyses preserve the photographs and retry under the same idempotency key. Deletion erases the stored BLOB and clears every linked analysis result in one transaction. An in-flight result can commit only while its current attempt is pending, so a deletion wins against a late model response. Completed analyses contribute live optional questions to claim reads and intake turns, including possible disagreement about damage types and rooms. The service builds these chat questions from validated cues and templates. Photo observations leave claim facts, safety state, and confirmation requirements intact. Previously stored turns contain no derived photo questions, so deleted results do not reappear in a replay.
-
-### Phase 5 contractor recommendations
-
-The operator's workspace and the confirmed claim determine contractor scope. The synthetic SQLite catalog seeds 24 fictional records independently for configured workspaces. The service derives a ZIP, required trade and urgency from the confirmed report. Clearly labeled photo observations can elevate urgency or trigger review. Immediate hazards take precedence and require human intervention before any tool call. An available policy binding supplies a preliminary advisory assessment.
-
-GPT-OSS 20B selects native LangChain tools in a bounded loop. The server exposes verified progress so the model can choose the next useful check in any order. Each tool result returns under the original call ID. Typed validation, an allowlist, iteration and call budgets, request timeouts and a bounded local read executor govern execution. Structured-policy requests use their own schema call. The model's free text and reasoning do not become part of the proposal or trace. [Groq local tool calling](https://console.groq.com/docs/tool-use/local-tool-calling)
-
-The model can read scoped candidates, current availability, arrival estimates, historical performance and requirements. Requirements reuse active Chroma evidence from the checked-in synthetic operations handbook. The service verifies the handbook hash and required text before deriving SLA values. Only the proposal tool can submit a draft, and it checks the chosen ID against discovered records, observed results and current eligibility. The server resolves the final ETA and alternatives from SQLite. A versioned proposal awaits approval, requires intervention or records an unsuccessful attempt. The API exposes only those proposal operations in this phase.
-
-The proposal transaction checks the claim version and fingerprint, current contractor fingerprints, and active handbook citations. A proposal expires after 15 minutes and becomes permanently stale when a relevant change is detected. Operator routes expose the effective proposal and a separate sanitized execution trace with call IDs, metadata, timing, token counts and decisions.
-
-## Workflow and routing
-
-The typed LangGraph workflow uses native interrupts for intake, review, proposal approval, simulated dispatch and acknowledgement. Approval records the operator's decision and pauses until an explicit dispatch request for the exact version. A SQLite transaction revalidates the claim, latest proposal, approval, eligibility and SLA evidence. It allows one active or accepted dispatch per claim and one dispatch per proposal. Reviewers never approve or deny policy coverage through this graph.
-
-The acknowledgement deadline comes from the verified operations handbook. If no validated handbook evidence is available at proposal generation, the workflow uses labeled synthetic defaults of one hour for urgent acknowledgement and four hours for routine acknowledgement. A cited handbook going stale invalidates the proposal. The injectable UTC clock drives eligibility, decision timestamps and acknowledgement expiry. Rejection or expiry returns through intake and the recommendation agent with failed contractors excluded. Each replacement needs its own approval. Three failed dispatches or an exhausted candidate set route to review. Arrival and completion tracking remain future design.
-
-For the frontend, use the operator endpoints below under `/api/v1/claims/{claim_id}/workflows/{workflow_id}`. Each POST requires an `Idempotency-Key`. Refetch the workflow after errors or a replay to obtain its current proposal and pause.
-
-| Method and path | Input and result |
-| --- | --- |
-| `GET /dispatch` | Workflow state and ordered dispatch summary with reviewer decisions, timestamps, source citations, SLA provenance and outcomes. |
-| `POST /dispatch` | `proposal_id` and `proposal_version` from the approved workflow. Returns the acknowledgement deadline and dispatch ID. |
-| `POST /dispatch/{dispatch_id}/response` | `outcome` of `accepted` or `rejected`. Responses at or after the deadline count as timeouts. |
-| `POST /dispatch/{dispatch_id}/sla` | Empty body. Before the deadline, returns current status. When due, records the breach and attempts recovery. |
-
-Run `uv run --locked --group agents python -m examples.evaluate` for the deterministic suite and offline fixture metrics. Add `--live` to verify one Groq workflow through simulated acceptance.
-
-The checkpointer writes to a sibling `.checkpoints.sqlite3` file with workspace-derived thread IDs. Preserve this file alongside the domain database when restarting or backing up the service. A sibling SQLite lock file serializes workflow mutations for that database. Checkpoints contain evidence references and node transitions. The domain database holds immutable reviewer decisions and revalidates the latest proposal, contractor eligibility and evidence in the same transaction. This makes decision replay safe across a crash between the domain commit and graph checkpoint. [LangGraph interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts)
-
-Operators use `POST /api/v1/claims/{claim_id}/workflows` with `expected_version`, `GET /api/v1/claims/{claim_id}/workflows/{workflow_id}`, and `POST` on the same resource with `/resume` appended. Both POSTs require an idempotency key. Resume takes the current `pause_id`, `action` and claim `expected_version`. Approval and rejection also take `proposal_id`, `proposal_version` and a reason. Use `retry` after updating intake or resolving the review issue. Run `uv run --locked --group agents python -m examples.workflows` for a live synthetic demonstration with an approval prompt.
-
-Persist one LangGraph thread per claim. Validated server-side events resume the relevant interrupt with their stored event ID. Pause nodes contain only the interrupt and return the resume input for validation in the next node. LangGraph may execute a paused node again on resume. [LangGraph persistence](https://docs.langchain.com/oss/python/langgraph/persistence) · [LangGraph interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts)
-
-| Node | Decision and outgoing paths |
-| --- | --- |
-| `extract_intake` | Extract candidates and evidence offsets from the current message. Reject invented evidence, preserve confirmed facts, record contradictions, and validate field types. Go to `evaluate_intake`. |
-| `evaluate_intake` | A credible immediate hazard creates a staff alert and shows a predefined safety message even when intake is incomplete. Missing or conflicting required facts go to `await_information`. After three unanswered or inconclusive clarification turns go to `await_review` with reason `incomplete_intake`. Complete intake goes to `retrieve_policy`. |
-| `await_information` | Pause with typed field questions. A new claimant message returns to `extract_intake`. A due intake deadline sends the item to staff review. |
-| `retrieve_policy` | Resolve the claimant-linked policy version effective on the incident date. Retrieve scoped clauses and validate citations. Missing or ambiguous match, unavailable retrieval, or an exclusion/condition needing interpretation flags staff review. Continue to `assess_urgency`. |
-| `assess_urgency` | Derive mitigation needs and urgency from validated signals and a versioned rule table. Immediate hazard or material uncertainty goes to `await_review`. Missing or ambiguous policy evidence also goes to review. Otherwise go to `find_contractors`. |
-| `find_contractors` | Filter eligible vendors, rank deterministically and persist the proposed scope and candidate. No suitable vendor goes to `await_review`. A valid proposal goes to `await_approval`. |
-| `await_review` | Pause with reasons and supporting evidence. Authorized staff can request clarification, resolve documented facts or policy concerns and rerun evaluation, rerun candidate matching, or close without dispatch with a recorded reason. Overrides carry a reason and evidence. Every dispatch path still requires approval. |
-| `await_approval` | Pause on one immutable, expiring proposal. Approval for the exact current snapshot goes to `dispatch`. Rejection goes to `await_review`. Expiry, changed facts, revised scope, or vendor change invalidate the proposal and return to evaluation. |
-| `dispatch` | Recheck approval/snapshot/expiry, policy review clearance, vendor eligibility and claim version at execution. Stale or ineligible proposals route back to evaluation. Successful simulated dispatch creates SLA milestones and goes to `await_progress`. Confirmed failure goes to review. An uncertain outcome is reconciled by idempotency key before any new proposal or send. |
-| `await_progress` | Pause for stored dispatch status updates and due SLA events. Accept only monotonic status transitions. A breach adds an alert and leaves tracking active. Failed/cancelled jobs go to staff review. Completion goes to `generate_report`. |
-| `generate_report` | Compile a versioned JSON report from authoritative facts, clauses, routing decisions, human decisions, dispatch and SLA events. An optional narrative is validated or replaced by a deterministic summary. Persist the report and atomically mark the claim terminal, then end. Staff closure also uses this path. |
-
-Required intake fields are policy reference, incident local date, verified property or service area, reported damage category and description, and active hazard status (`yes/no/unknown`). Unknown hazard status and conflicting hazard evidence require staff review before dispatch. Incident dates cannot be future-dated in the property's local timezone. Exact synthetic policy/location validation happens against the fixture catalog. Hazards with evidence such as active fire, gas smell, live electrical exposure or structural collapse take `emergency_review` precedence. Active water intrusion with no immediate hazard is `urgent`. Contained damage with established evidence is `routine`. Unclear or conflicting evidence is `unknown`. Urgency affects queue priority and SLA thresholds. A reviewer acknowledges emergency conditions and resolves safety clearance before vendor matching. Policy output is advisory and cannot authorize or deny coverage.
-
-Vendor eligibility requires the required trade, service area, active credential and insurance flags and availability in the proposal's time window. Rank eligible vendors by earliest arrival, then distance and stable vendor ID. Initial simulated thresholds measured from dispatch acceptance are acknowledgement and arrival at 1h/4h for urgent work and 4h/24h for routine work. An emergency cleared for mitigation uses urgent thresholds. One completion deadline comes from the approved proposal. Breached milestones remain in the report after fulfillment. Fixtures use an injectable UTC clock.
-
-### Graph state
-
-Use a TypedDict with JSON primitives and nested Pydantic DTO dumps, validated when entering/leaving nodes. Fields use replacement semantics, and durable collections stay in SQLite. Node guards compare versions before consuming state.
-
-| Field | Shape and ownership |
-| --- | --- |
-| `schema_version`, `workflow_version`, `claim_id`, `claim_version`, `run_id` | Graph/worker context. Claim version advances on domain transitions. |
-| `input_event_id`, `last_applied_event_id` | Durable input and replay cursor. Worker resumes with stored event only. |
-| `fact_revision`, `missing_fields`, `conflicting_fields`, `clarification_round` | Validated intake projection. Fact values and evidence remain in domain records. |
-| `policy_version_id`, `clause_ids`, `policy_evidence_status` | Retrieval projection. Status is `grounded`, `uncertain` or `unavailable`. |
-| `urgency`, `reason_codes`, `rules_version`, `review_item_id` | Deterministic routing and review references. |
-| `proposal_id`, `proposal_digest`, `approval_id`, `dispatch_id` | Durable action references, nullable until present. |
-| `waiting`, `terminal_reason`, `last_error_code` | Wait carries kind, item ID and optional expiry. Terminal reason is `completed` or `closed_without_dispatch`. |
-
-### Agent output contracts
-
-| Agent | Validated output |
-| --- | --- |
-| Intake | Phase 1 `IntakeExtraction` contains nullable verbatim fields, quoted contradictions and computed missing information. Durable intake will associate verified excerpts with the message ID and source offsets before confirming or merging facts. |
-| Policy | `PolicyEvidenceAssessment` with cited clause IDs and bounded rationale, issue codes for exclusions/conditions, and unresolved questions. Validation removes unsupported evidence and fails the assessment to review when material. |
-| Triage | `DamageSignals` with damage category, hazard enum, active intrusion flag, proposed trades and span references. The rule service derives urgency and approved trade scope. |
-| Reporting | `ReportNarrative` with a brief summary and referenced facts, decisions or milestones. The report service owns the actual record and rendering authorization. |
-
-## Tool contracts
-
-All tools take strict typed inputs and return a typed result or a stable error code (`invalid_input`, `forbidden`, `not_found`, `stale`, `unavailable`, `timeout`, `outcome_unknown`). Tenant, claim, authorization, operation key and clock are injected by the service. Policy agents may select only the read tools for searching or fetching evidence, capped at three calls per turn. Remaining operations are invoked by graph/service code.
-
-| Tool | Inputs | Successful result and guarantees |
-| --- | --- | --- |
-| `resolve_policy` | verified policy reference, incident date | Unique active version ID, effective window, content digest. Zero or overlapping versions flagged. |
-| `search_policy_clauses` | scoped policy version, bounded query, limit 1–8 | Ranked clause IDs, distance and cited excerpts. Filter by tenant and exact version before ranking. |
-| `get_policy_clause` | scoped policy version, clause ID | Exact text, section, document version and digest. Cross-policy IDs rejected. |
-| `find_contractors` | service area, trade, arrival window | Bounded list of eligible IDs, ETA, distance, credential state and snapshot time. Deterministic order. |
-| `create_dispatch` | approved proposal ID and digest, approval ID, operation key | One simulated job ID, accepted time and status. Same key and payload returns the original result. A mismatched payload returns a conflict. |
-| `get_dispatch` | operation key | Authoritative simulator outcome and status version for reconciliation after a timeout. |
-| `check_sla` | dispatch ID and injected current time | Due unmet milestone IDs and breach timestamps. Writes are handled in an idempotent service transaction. |
-
-Agent outputs use strict Pydantic fields, bounded enums, explicit unknowns and evidence references. Treat all customer text, policy text and vendor content as data in prompts. Verify quoted spans and clause IDs against stored sources. Tools are local, scoped, allowlisted and accept neither arbitrary URLs nor SQL. The workflow will apply a node-level time budget around the Phase 1 provider call. Invalid structured output becomes a typed failure that the workflow can route to clarification or review. Retrieval without verified evidence and failed extraction can produce clarifications or staff review. No fabricated facts or citations. Dispatch retries use the same operation key after lookup. A permanently unknown external outcome requires reconciliation. [Pydantic strict mode](https://docs.pydantic.dev/latest/concepts/strict_mode/)
-
-## Persistence design
-
-Use Python sqlite3 with versioned migrations, foreign keys enabled on each connection, bounded lock timeout and short write transactions. Start with rollback journaling for domain state. Any switch to WAL must verify the runtime SQLite includes the WAL-reset fix before concurrent use. The separate LangGraph SQLite checkpointer manages its own tables and journaling. Verify the same fix before enabling concurrent access to that file. Chroma is a rebuildable projection. [SQLite journaling and concurrency](https://sqlite.org/wal.html) · [LangGraph SQLite checkpointer](https://pypi.org/project/langgraph-checkpoint-sqlite/)
-
-IDs are server-generated UUID text unless otherwise stated. UTC times are RFC 3339 at fixed precision. The `incident_date` is ISO local date. Tenant and actor IDs come from authenticated context. API reads and writes check claim ownership or reviewer role. Foreign keys on tenant-scoped entities include tenant ID or are verified by the service in the write transaction. JSON columns store versioned typed objects. Required fields are non-null unless marked optional below.
-
-| Table | Columns, keys and constraints |
-| --- | --- |
-| `claims` | `id PK, tenant_id, claimant_id, status, version, fact_revision, thread_id UNIQUE, created_at, updated_at`. Index tenant/claimant/status and tenant/updated time. |
-| `claim_messages` | `id PK, claim_id FK, actor_id, role, text, created_at`. Index claim/time/id. |
-| `claim_facts` | `claim_id FK, revision, facts_json, provenance_json, created_at`. PK claim/revision. Provenance pairs values with message IDs and validated spans or reviewer decision evidence. |
-| `policy_versions` | `id PK, tenant_id, policy_ref, property_ref, effective_from, effective_until, content_digest`. Unique tenant/policy/effective_from. Effective intervals include the start and exclude the end. The service rejects overlaps. |
-| `knowledge_documents` | `id PK, tenant_id, document_type, policy_id, policy_version, subject_claimant_id, title, filename, format, content_hash, document_version, sections_json, status, generation, config_json, error_code?, created_at, deleted_at?`. The live content hash is unique within a scope. |
-| `knowledge_chunks` | `chunk_id PK, document_id FK, generation, page?, section?, text`. Scope and version metadata derive from the document and are copied to Chroma. |
-| `claim_policy_bindings` | `claim_id PK/FK, policy_id, policy_version, operator_id`. An explicit binding must match the confirmed policy ID. |
-| `claim_photos` | `id PK, claim_id FK, width, height, size_bytes, sha256?, original_sha256?, data?, created_at`. Ownership derives from the claim. The BLOB and hashes are nulled on deletion. |
-| `photo_analyses` | `id PK, claim_id FK, photo_ids_json, status, provider, model, attempts, result_json?, error_code?`. Typed observations remain separate from fact revisions. |
-| `photo_analysis_images` | `analysis_id FK, photo_id FK`. Composite primary key. The service validates claim scope when linking photos. |
-| `contractors` | `tenant_id,id` composite primary key. Typed `record_json` stores synthetic trades, ZIPs, hours, availability, estimated costs and performance. |
-| `contractor_runs` | `id PK, tenant_id, claim_id FK, provider, model, claim_version, status, trace_json?`. Replays retain the run ID. |
-| `review_items` | `id PK, claim_id FK, reason_codes_json, evidence_json, status, created_at, resolved_at?, resolution_json?`. One open item per claim. |
-| `dispatch_proposals` | `id PK, run_id FK UNIQUE, claim_id FK, version, proposal_json, claim_fingerprint, contractor_fingerprints`. Unique claim/version. The record carries expiry and effective proposal status. |
-| `approval_decisions` | `id PK, proposal_id FK UNIQUE, reviewer_id, outcome, reason, proposal_digest, decided_at`. Outcomes approve/reject. Immutable. |
-| `dispatches` | `id PK, claim_id FK, proposal_id FK UNIQUE, approval_id FK UNIQUE, operation_key UNIQUE, external_ref? UNIQUE, status, status_version, accepted_at?`. One active dispatch per claim. |
-| `simulated_dispatch_jobs` | `operation_key PK, payload_digest, job_ref UNIQUE, status, status_version, accepted_at`. Persistent simulator ledger. |
-| `sla_milestones` | `id PK, dispatch_id FK, kind, due_at, fulfilled_at?, breached_at?`. Unique dispatch/kind. Index unmet due times. |
-| `reports` | `id PK, claim_id FK, version, schema_version, cutoff_audit_seq, body_json, created_at`. Unique claim/version. |
-| `audit_events` | `id PK, claim_id FK, seq, actor_type, actor_id?, kind, run_id?, request_id?, payload_json, created_at`. Unique claim/seq. Append via service. Database triggers reject updates and deletes. |
-| `workflow_events` | `id PK, claim_id FK, dedupe_key, kind, payload_json, status, attempts, next_attempt_at, lease_until?, lease_owner?, last_error_code?, created_at`. Unique claim/dedupe_key. Index runnable status/time. The claim sequence follows insertion order using the associated audit sequence in payload. Lease owner includes a unique fencing token. |
-| `workflow_effects` | `workflow_event_id FK, step_key, claim_id FK, result_json, applied_at`. PK workflow_event_id/step_key. Committed with the corresponding domain and audit changes. |
-| `idempotency_requests` | `tenant_id, actor_id, route_scope, key, request_digest, response_code, response_json, created_at`. Composite PK tenant/actor/route/key. |
-
-Use database checks for enum states and nonnegative versions/counts and deterministic uniqueness for side effects and audit events from replayed steps. Domain mutations append audit and work items in the same transaction. Apply workflow event and node effects under unique event/node keys and use absolute, versioned updates so replay can return the stored result. The checkpoint and domain writes use separate transactions. On restart the worker resolves in-flight input from committed operation outcomes and the graph checkpoint before moving to the next input. Mark an input complete only after its checkpoint reaches the next pause or terminal step. Use a single worker with a renewable lease, conditional state updates, and a fencing token on domain writes. Restart tests must cover both sides of the checkpoint/transaction boundary. Use primitive checkpoint payloads and the checkpointer's restricted deserialization mode.
-
-Approval creation and dispatch reservation verify the proposed scope, subject, digest, expected version, validity window and reviewer. Reuse one reservation with its original operation key after a crash. Vendor/scope or material fact changes before reservation invalidate approval. Serialize reservation with the claim update and treat the accepted reservation as the start of dispatch. Subsequent changes go through staff and job status handling. The simulator commits the same idempotent outcome before returning it to the graph.
-
-## API contract
-
-The current API serves liveness, intake, photos and knowledge under `/api/v1`. Use JSON and Pydantic-generated OpenAPI. Local synthetic users receive development bearer credentials configured outside Git. The server derives identity, tenant and permissions. A claim's owner can view its customer projection. Knowledge operators manage their workspace and assess confirmed claims in it. Future workflow routes use reviewer and simulator roles.
-
-| Endpoint | Input | Success |
-| --- | --- | --- |
-| `GET /health` | None | 200 `{ "status": "ok" }`, process liveness |
-| `POST /conversations` | No body | 201 `IntakeTurn` with claim and initial reply, plus conversation Location header |
-| `POST /conversations/{id}/messages` | `{message, expected_version, replace_failed_message?}` | 200 `IntakeTurn` with updated claim and reply |
-| `GET /conversations/{id}` | `after?, limit?` | 200 paged conversation history |
-| `POST /claims/{id}/confirm` | `{confirmed: true, expected_version}` | 200 `IntakeTurn` for the confirmed claim |
-| `GET /claims` | `status?, cursor?, limit?` | 200 cursor page of actor-scoped claim summaries |
-| `GET /claims/{id}` | None | 200 `ClaimView` with intake status, candidate or confirmed evidence, unresolved fields and summary when ready |
-| `GET /review-queue` | `kind?, cursor?, limit?` | 200 cursor page of open review items and proposals, reviewer only |
-| `POST /claims/{id}/reviews/{review_id}/decision` | `{action, reason, expected_version, resolution?}`. Actions `request_information`, `resolve_and_retry`, `retry_match`, `close`. Resolution may supply validated evidence-backed facts or acknowledgements. | 202 `ClaimView`, reviewer only |
-| `POST /claims/{id}/proposals/{proposal_id}/decision` | `{outcome, reason, proposal_digest, expected_version}` | 202 `ClaimView`, reviewer only |
-| `POST /simulator/dispatches/{dispatch_id}/events` | `{external_event_id, status, status_version, occurred_at}` | 202 `{event_id}`, simulator only. Server validates status against simulator ledger. |
-| `GET /claims/{id}/audit` | `after_seq?, limit?` | 200 cursor page of ordered audit events, reviewer only |
-| `GET /claims/{id}/report` | `version?` | 200 typed report or 404 while unavailable. The customer view excludes internal-only evidence and actor IDs |
-| `POST /claims/{id}/photos` | Multipart `photo` file | 201 metadata and photo Location |
-| `GET /claims/{id}/photos` | None | 200 list of active photos |
-| `GET /claims/{id}/photos/{photo_id}` | None | 200 photo metadata |
-| `GET /claims/{id}/photos/{photo_id}/content` | None | 200 private JPEG bytes |
-| `DELETE /claims/{id}/photos/{photo_id}` | None, idempotency key required | 204 photo deleted and dependent analyses invalidated |
-| `POST /claims/{id}/photo-analyses` | `{photo_ids, context?}` | 200 completed analysis, 503 failed analysis, or 409 if invalidated |
-| `GET /claims/{id}/photo-analyses` | None | 200 latest 20 analyses |
-| `GET /claims/{id}/photo-analyses/{analysis_id}` | None | 200 scoped status and report if active and completed |
-| `GET /claims/{id}/runs` | `cursor?, limit?` | 200 reviewer-only execution metadata |
-| `POST /knowledge/documents` | Multipart `document` and JSON `metadata` | 201 document with indexing status |
-| `GET /knowledge/documents` | `limit?, offset?` | 200 workspace document metadata page |
-| `GET /knowledge/documents/{id}` | None | 200 metadata and indexing status |
-| `POST /knowledge/documents/{id}/index` | None | 200 retried or rebuilt document |
-| `POST /knowledge/rebuild` | None | 200 indexing statuses for the workspace |
-| `DELETE /knowledge/documents/{id}` | None | 204 removal |
-| `POST /knowledge/search` | `{query, document_type, policy_id?, policy_version?, top_k?}` | 200 scoped chunks and cosine distances |
-| `POST /knowledge/playground/query` | Same scope and query as search | 200 grounded answer or insufficient evidence |
-| `POST /claims/{id}/policy-binding` | `{policy_version}` | 200 binding for the confirmed policy ID |
-| `POST /claims/{id}/policy-assessment` | None | 200 advisory assessment from confirmed facts and bound version |
-| `GET /contractors` | None | 200 scoped synthetic catalog |
-| `GET /contractors/{id}` | None | 200 scoped contractor |
-| `POST /claims/{id}/contractor-recommendations` | `{expected_version}` plus idempotency key | 200 run and versioned proposal |
-| `GET /claims/{id}/contractor-recommendations/{run_id}` | None | 200 current status and proposal |
-| `GET /claims/{id}/contractor-recommendations/{run_id}/trace` | None | 200 sanitized tool and model execution trace |
-| `GET /claims/{id}/dispatch-proposals` | None | 200 proposal history with validity check |
-
-`ClaimView` includes ID, version, status, timestamps, allowed facts, urgency and an optional wait object with kind, item ID, questions or expiry. Reviewer views may include reason codes, clause citations, proposal and SLA milestones. Status values are `queued`, `processing`, `awaiting_information`, `awaiting_review`, `awaiting_approval`, `tracking`, `completed`, `closed_without_dispatch`. Simulator transitions go from `accepted` through `acknowledged`, `arrived`, `completed` or a permitted failure/cancellation. Monotonic versions and unique external event IDs prevent replay or regression. Report fields are schema version, claim ID, fact revision, facts/provenance, policy status/citations, urgency/rule decisions, human approvals/reviews, dispatch timeline, SLA outcomes and closure reason with an audit cutoff.
-
-Require `Idempotency-Key` (1–128 characters) for mutations. Knowledge search, playground queries and assessments are read-only. The same actor, route, key and canonical request digest identify the same mutation. Different bodies or stale `expected_version` values return 409. Use 401 for missing credentials, 403 for insufficient role on permitted resources and 404 for out-of-scope resources. Errors use `{code, message, request_id, field_errors?}`. Malformed or invalid data returns 422. Limit messages to 4,000 characters and list pages to 100 items. Multipart endpoints enforce separate streamed byte limits and include a file digest in request idempotency.
-
-## Audit and observability
-
-Record accepted inputs, structured extraction and source references, policy evidence IDs, model/tool metadata and failures, deterministic rule transitions, human decisions, dispatch attempts/outcomes, SLA changes and report generation. Use per-claim monotonic sequence numbers and unique operation-derived event IDs. Logs carry request, claim, run, node/tool, elapsed time, retry count and outcome. Store decision reasons and evidence references with access restrictions. Exclude credentials, raw model reasoning, raw prompts and unnecessary customer text from logs. Emit local counts for queue depth, time-to-review, model errors, rejected outputs, dispatch outcomes and SLA breaches. Append-only database controls protect application history against accidental edits. Scope remains a local synthetic pilot.
+The initial design drew on documented patterns for specialized agents, bounded tools and review gates. ClaimPilot implements a separate property restoration workflow. [Insurance Agentic AI](https://github.com/mohanhundre1/insurance-agentic-ai#architecture) · [ClaimLens](https://github.com/kb2326/claimlens)

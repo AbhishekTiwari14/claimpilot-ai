@@ -1,0 +1,15 @@
+# Evaluation
+
+The checked-in [benchmark snapshot](../frontend/src/benchmark.json) is the source for the frontend evaluation page. It records the earlier Phase 9 deterministic regression run (134/134) and offline fixture results. The portfolio release check passed 145/145 tests on Windows with Python 3.11.18. Live inference was outside that release run.
+
+| Recorded run | Sample and method | Result |
+| --- | --- | --- |
+| Offline extraction | 3 synthetic inputs covering a full report, a partial turn and an injection attempt. The scorer compares specified structured fields to expected values. | 3/3 cases |
+| Offline RAG | 8 labeled questions with lexical fixture embeddings. Hit@5 checks for at least one expected section on the 5 cases with relevant labels. Four positive cases are rephrased to ask for a named clause, then the scorer checks each citation against the retrieved source and labeled section. The remaining negative and out-of-scope checks require abstention and, where labeled, empty retrieval. | Hit@5 5/5, valid named-clause citations 4/4, abstention and scope 3/3 |
+| Offline contractor tools | 5 labeled scenarios covering eligible, active water, empty search, missing ZIP and emergency. The scorer checks required successful tools as a set, along with eligibility and escalation. | 13/13 valid tool executions, 3/3 discovery cases with required information, 2/2 eligible recommendations, 3/3 correct escalations, 0 unauthorized actions |
+| Live RAG | 8 labeled questions on four uploaded documents, using local ONNX MiniLM embeddings, persisted Chroma reopened in a new process, and Groq GPT-OSS 20B. Cases include four answerable questions, one conflicting-policy case, one unsupported question and two out-of-scope questions. | 5/5 Hit@5, 5/5 cases with all labeled sections retrieved, 8/8 expected outcomes, 6/6 citations with valid IDs and exact stored excerpts, 5/5 with labeled evidence terms |
+| Live contractor tools | Two Groq GPT-OSS 20B traces using the local operations index. | Eligible case reached approval in 8 model turns. Empty search escalated in 3 turns. |
+
+The offline scorer uses labeled expectations and scripted inference. Live results are recorded spot checks on synthetic data. The API guides retain the live run details, including the RAG scoring history and one rejected tool call in the live eligible case. [Knowledge labels](../data/knowledge/evaluation.json) · [Contractor labels](../data/contractors/evaluation.json) · [Knowledge evaluation](KNOWLEDGE_API.md#recorded-phase-4-evaluation) · [Live tool traces](CONTRACTOR_API.md#recorded-live-verification)
+
+Run the combined offline evaluation with `uv run --locked --group agents python -m examples.evaluate`. It runs pytest and emits fixture metrics. Supply `--live` to also exercise a Groq workflow with simulated approval and acceptance. To regenerate the frontend snapshot from a specific regression run, use `uv run --locked --group agents python -m examples.export_frontend_benchmarks --junit PATH_TO_PYTEST_XML`.

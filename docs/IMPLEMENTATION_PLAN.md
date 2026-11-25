@@ -1,6 +1,6 @@
 # ClaimPilot AI implementation plan
 
-Implement phases in order and verify each phase before starting the next. Use synthetic claims, policies, contractors and events throughout. A phase ends with recorded commands, results, open issues and a review of its acceptance criteria.
+This document preserves the staged implementation plan and proposed evaluation gates. See the [current architecture](ARCHITECTURE.md) and [recorded evaluation](EVALUATION.md) for shipped behavior and measured results.
 
 ## Phase 0 — Architecture and backend bootstrap
 
@@ -101,9 +101,9 @@ Add arrival and completion events, scheduled milestone processing, a claim repor
 - Completed and closed claims yield reports that reconcile with domain records and their audit cutoff. Reports respect role-based redaction. Optional model summaries use a deterministic fallback.
 - The offline suite completes the entire synthetic workflow with zero API keys. Scorecards include dataset, rules and prompt versions, provider/model, scenario counts, failure reasons and latency percentiles.
 
-## Future — V1 interfaces
+## Portfolio interfaces and future validation
 
-Build three React/TypeScript interfaces with Tailwind and shadcn/ui against generated OpenAPI types. The customer portal provides conversation, damage photo uploads and claim tracking. The operations dashboard shows agent execution, reviewer inbox, approvals, dispatch, SLA timeline and audit. The knowledge base provides document management, index status and a cited RAG playground.
+The React/TypeScript portfolio frontend provides customer intake and photos, operator workflow and dispatch controls, and document management with a cited RAG playground. See the [demo instructions](../README.md#run-the-interactive-demo). Generated OpenAPI types and broader browser coverage remain prospective.
 
 - Browser tests cover staged intake, photo upload, human approval, dispatch, tracking and report views. Knowledge managers can upload and archive documents, see indexing status and inspect cited sources within their authorized workspace. The UI handles processing, empty, failure and stale-version states. Keyboard users can complete each workflow role. No browser action can impersonate a reviewer or bypass the API gate.
 
