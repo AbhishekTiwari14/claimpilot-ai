@@ -24,8 +24,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
     && useradd --uid 10001 --gid claimpilot --create-home claimpilot \
     && install -d -o claimpilot -g claimpilot /runtime
 COPY pyproject.toml uv.lock ./
-RUN --mount=type=bind,from=uv,source=/uv,target=/usr/local/bin/uv \
-    UV_NO_CACHE=1 UV_PYTHON_DOWNLOADS=never uv sync --locked --no-dev --group agents --no-install-project
+COPY --from=uv /uv /usr/local/bin/uv
+RUN UV_NO_CACHE=1 UV_PYTHON_DOWNLOADS=never uv sync --locked --no-dev --group agents --no-install-projectt
 COPY claimpilot/ claimpilot/
 COPY data/contractors/ data/contractors/
 COPY data/knowledge/ data/knowledge/
