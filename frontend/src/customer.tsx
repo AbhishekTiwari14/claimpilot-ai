@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
-import { Camera, Check, CircleDashed, ClipboardCheck, MessageSquare, Plus, Send, Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Camera, Check, CircleDashed, ClipboardCheck, MessageSquare, Paperclip, Plus, Send, Shield, Trash2 } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type Ref } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { client, type Analysis, type Claim, type ClaimRow, type History, type Photo, type Turn } from './api';
 import { Badge, Empty, Facts, Failure, Loading, Notice, Observations, Panel, fieldLabel, label, shortID, useAction, valueText } from './shared';
 import { Button } from './components/ui/button';
 import { ClaimProgress, experienceFor, photoAttribution, sampleFile, sampleMessages, scenarioFor, type Experience } from './demo';
+import { Guide, Milestone, useWalkthrough } from './walkthrough';
 
 const suggestedFields: Record<string, [number, string]> = {
   damage_type: [0, 'I noticed damage to '],
@@ -64,7 +65,10 @@ function Conversation({ token, conversation, guided, scenario, experience }: {
   const [retry, setRetry] = useState<{ message: string; expected_version: number; replace_failed_message: boolean } | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const chat = useRef<HTMLDivElement>(null);
+  const nearBottom = useRef(true);
   const composer = useRef<HTMLTextAreaElement>(null);
+  const photoInput = useRef<HTMLInputElement>(null);
+  const journey = useWalkthrough();
   const mutation = useAction();
   const history = useQuery({ queryKey: ['conversation', conversation], queryFn: async () => {
     const first = await api.get<History>(`/conversations/${conversation}?limit=100`);
@@ -83,7 +87,9 @@ function Conversation({ token, conversation, guided, scenario, experience }: {
   const progress = useQuery({ queryKey: ['customer-claims'], queryFn: () => api.get<ClaimRow[]>('/customer/claims') })
     .data?.find(claim => claim.claim_id === claimID);
   const claim = claimQuery.data;
-  useEffect(() => { if (chat.current) chat.current.scrollTop = chat.current.scrollHeight; }, [history.data?.messages.length, claimID]);
+  useLayoutEffect(() => {
+    if (chat.current && nearBottom.current) chat.current.scrollTop = chat.current.scrollHeight;
+  }, [history.data?.messages.length, claim?.version]);
   const send = (body: NonNullable<typeof retry>) => {
     setRetry(body);
     void mutation.run(`message:${JSON.stringify(body)}`, async key => {
@@ -106,32 +112,46 @@ function Conversation({ token, conversation, guided, scenario, experience }: {
   const firstMessage = !history.data?.messages.some(message => message.role === 'customer');
   const field = claim.pending_field || Object.keys(claim.conflicts)[0] || claim.missing_fields[0];
   const suggestion = suggestedFields[field];
-  const fill = (message: string) => { setText(message); composer.current?.focus(); };
+  const fill = (message: string) => { setText(message); composer.current?.focus({ preventScroll: true }); };
+  const ready = claim.status === 'awaiting_customer_confirmation' && !claim.missing_fields.length;
   return <>
+    <Milestone step="report" when={ready || complete} />
+    <Milestone step="confirm" when={complete} />
     {guided && <Notice>Sample claim · {scenario.title} · Policy {scenario.policy} v1 · service ZIP {scenario.zip}</Notice>}
     <ClaimProgress stage={progress?.dispatch_status ? 3 : complete ? 2 : claim.status === 'awaiting_customer_confirmation' ? 1 : 0} />
-    <div className="split">
-      <Panel title="Intake conversation" caption={`Claim ${shortID(claimID)}`} action={<Badge value={claim.status} />}>
-        <div ref={chat} className="chat-log" aria-live="polite">{history.data?.messages.map(message => <div className={`bubble ${message.role}`} key={message.id}>
-          <small>{message.role === 'assistant' ? 'ClaimPilot intake' : 'You'}</small><p>{message.text}</p>
+    <div className="customer-grid">
+      <Panel title="Damage report" action={<Badge value={claim.status} />}>
+        <div ref={chat} className="chat-log" role="log" aria-label="Claim conversation" onScroll={event => {
+          const element = event.currentTarget;
+          nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+        }}>{history.data?.messages.map(message => <div className={`bubble ${message.role}`} key={message.id}>
+          {message.role === 'assistant' && <span className="assistant-mark"><Shield size={14} /></span>}
+          <div><small>{message.role === 'assistant' ? 'ClaimPilot' : 'You'}</small><p>{message.text}</p></div>
         </div>)}</div>
         <Failure error={mutation.error} />
         {claim.processing_error && <Notice>Intake paused while processing your last message. Retry it or submit a replacement.</Notice>}
         {retry && mutation.error && <Button variant="outline" disabled={mutation.pending} onClick={() => send(retry)}>Retry saved message</Button>}
-        {!complete && <form onSubmit={submit} className="stack tight">
-          <label htmlFor="message">Your message</label>
-          <textarea ref={composer} id="message" rows={3} value={text} maxLength={4000} onChange={event => setText(event.target.value)} />
+        {!complete && <form onSubmit={submit} className="chat-composer stack tight">
+          {!ready && <Guide key={firstMessage ? 'opening' : field} step={firstMessage ? 'opening' : `reply-${field}`}>
+            {firstMessage ? 'Start with the sample sentence or describe the damage in your own words. Leave some details for the assistant to ask about.' :
+              `The assistant needs ${fieldLabel(field).toLowerCase()}. Use the suggested reply or enter your own.`}</Guide>}
+          <label className="sr-only" htmlFor="message">Your message</label>
+          <textarea ref={composer} id="message" rows={2} placeholder="Message ClaimPilot…" value={text} maxLength={4000} onChange={event => setText(event.target.value)} />
           <div className="row spread wrap">
             {guided && firstMessage ? <Button type="button" variant="outline" onClick={() => fill(samples[0])}>Use sample opening message</Button> :
               suggestion ? <Button type="button" variant="outline" onClick={() => fill(guided ? samples[suggestion[0]] : suggestion[1])}>
                 {guided ? 'Use sample' : 'Start answer'} · {fieldLabel(field)}</Button> : <span />}
-            <Button disabled={mutation.pending || !text.trim()}><Send /> {mutation.pending ? 'Sending…' : 'Send message'}</Button></div>
+            <div className="row">{experience !== 'chat' && <span className="icon-tip" data-tooltip="Attach a damage photo">
+              <Button type="button" size="icon" variant="ghost" aria-label="Attach a damage photo" onClick={() => photoInput.current?.click()}><Paperclip /></Button></span>}
+              <Button disabled={mutation.pending || !text.trim()}><Send /> {mutation.pending ? 'Sending…' : 'Send message'}</Button></div></div>
         </form>}
+        {experience !== 'chat' && <Photos token={token} claimID={claimID} guided={guided} inputRef={complete ? undefined : photoInput} inline ready={ready} />}
       </Panel>
       <Panel title="Claim checklist" caption="This updates with the assistant’s latest reply.">
         <div className="stack">
           {claim.missing_fields.length > 0 && <Notice>Still needed: {claim.missing_fields.map(fieldLabel).join(', ')}.
             {claim.missing_fields.includes('property_location') && ' Give the property address or the five-digit service ZIP. Room names belong under affected areas.'}</Notice>}
+          <details className="claim-details" open><summary>Collected details <small>{Object.keys(suggestedFields).length - new Set([...claim.missing_fields, ...Object.keys(claim.conflicts)].filter(item => item in suggestedFields)).size} of {Object.keys(suggestedFields).length}</small></summary>
           {!complete ? <ul className="claim-checklist" aria-label="Collected and missing claim information">
             {Object.keys(suggestedFields).map(item => {
               const missing = claim.missing_fields.includes(item) || !!claim.conflicts[item];
@@ -139,25 +159,28 @@ function Conversation({ token, conversation, guided, scenario, experience }: {
                 <div><strong>{fieldLabel(item)}</strong><small>{missing ? (claim.conflicts[item] ? 'Needs clarification' : 'Still needed') : valueText(claim.facts[item]?.value)}</small></div></li>;
             })}
           </ul> : <Facts facts={claim.facts} />}
+          </details>
           {!complete && claim.facts.suspected_cause && <p className="muted">Suspected cause: {valueText(claim.facts.suspected_cause.value)}</p>}
           {Object.entries(claim.conflicts).map(([field, values]) => <Notice key={field}>Clarify {label(field)}: {values.map(fact => String(fact.value)).join(' / ')}.</Notice>)}
-          {claim.status === 'awaiting_customer_confirmation' && !claim.missing_fields.length && <>
+          {ready && <>
+            {(!journey || journey.progress.photo) && <Guide step="confirm">Check the address and other details, then confirm this exact report.</Guide>}
             <p className="muted">To correct a detail, send the correction in the conversation before confirming.</p>
             <label className="check"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /> I reviewed these details and confirm they are correct.</label>
             <Button disabled={!confirmed || mutation.pending} onClick={() => void mutation.run(`confirm:${claim.version}`, async key => {
               await api.post<Turn>(`/claims/${claimID}/confirm`, { expected_version: claim.version, confirmed: true }, key);
+              if (!journey?.progress.photo) journey?.record('photo', 'skipped');
               setConfirmed(false);
             })}><ClipboardCheck /> Confirm claim details</Button>
           </>}
           {complete && <Notice kind="success">Your confirmed claim is available to the operations team.</Notice>}
           {complete && guided && (experience === 'chat' ? <Button asChild><Link to="/">Explore another capability</Link></Button> :
-            <Button asChild><Link to={`/claims/${claimID}?scenario=${scenario.id}&experience=${experience}`}>Continue to Operator Review</Link></Button>)}
+            <><Guide step="insurance-review">Continue with the same claim in the insurance team’s workspace.</Guide>
+              <Button asChild><Link to={`/claims/${claimID}?scenario=${scenario.id}&experience=${experience}`}>Continue to Insurance Review</Link></Button></>)}
           {progress?.dispatch_status && <div className="row wrap">Simulated contractor status <Badge value={progress.dispatch_status} /></div>}
           {claim.photo_follow_ups.map(item => <Notice key={`${item.photo_id}-${item.question}`}>{item.question}</Notice>)}
         </div>
       </Panel>
     </div>
-    {experience !== 'chat' && <Photos token={token} claimID={claimID} guided={guided} />}
   </>;
 }
 
@@ -175,7 +198,9 @@ function Thumbnail({ token, claimID, photo }: { token: string; claimID: string; 
   return url ? <img src={url} alt={`Claim photo ${shortID(photo.id)}`} /> : error ? <Failure error={error} /> : <Loading />;
 }
 
-function Photos({ token, claimID, guided }: { token: string; claimID: string; guided: boolean }) {
+function Photos({ token, claimID, guided, inputRef, inline = false, ready = false }: {
+  token: string; claimID: string; guided: boolean; inputRef?: Ref<HTMLInputElement>; inline?: boolean; ready?: boolean;
+}) {
   const api = client(token);
   const path = `/claims/${claimID}`;
   const [task, setTask] = useState<{ input: File | string; key: string } | null>(null);
@@ -206,9 +231,9 @@ function Photos({ token, claimID, guided }: { token: string; claimID: string; gu
       } finally { setStage(''); }
     });
   }
-  return <div className="split">
-    <Panel title="Damage photos" caption="Optional. Selecting a JPEG, PNG or WebP uploads and analyses it automatically.">
-      <input aria-label="Damage photograph" type="file" accept="image/jpeg,image/png,image/webp" disabled={action.pending} onChange={event => {
+  const uploadControls = <>
+      <input ref={inputRef} className={inline && inputRef ? 'sr-only' : ''} tabIndex={inline && inputRef ? -1 : undefined}
+        aria-label="Damage photograph" type="file" accept="image/jpeg,image/png,image/webp" disabled={action.pending} onChange={event => {
         const file = event.target.files?.[0];
         if (file) upload(file);
         event.target.value = '';
@@ -230,9 +255,18 @@ function Photos({ token, claimID, guided }: { token: string; claimID: string; gu
             if (window.confirm('Delete this photo?')) void action.run(`delete:${photo.id}`, key => api.delete(`${path}/photos/${photo.id}`, key));
           }}><Trash2 /></Button></div>
       </div>)}</div>
-    </Panel>
-    <Panel title="Photo observations" caption="Visual observations and interpretations are separate from confirmed claim facts.">
-      <Failure error={analyses.error} />{analyses.isPending ? <Loading /> : <Observations analyses={analyses.data ?? []} />}
-    </Panel>
-  </div>;
+  </>;
+  const observations = <><Failure error={analyses.error} />
+    {analyses.isPending ? <Loading /> : <Observations analyses={analyses.data ?? []} />}</>;
+  return <>
+    <Milestone step="photo" when={!!analyses.data?.some(analysis => analysis.status === 'completed')} />
+    {inline ? <div className="inline-photos stack tight">
+      {ready && !analyses.data?.some(analysis => analysis.status === 'completed') && <Guide step="photo">Try the sample photo to see visible damage and AI observations. You can also confirm without a photo.</Guide>}
+      {uploadControls}
+      {!!analyses.data?.length && <details open><summary>Damage observations</summary>{observations}</details>}
+    </div> : <div className="split">
+      <Panel title="Damage photos" caption="Selecting an image uploads and analyses it automatically.">{uploadControls}</Panel>
+      <Panel title="Photo observations" caption="Image observations stay separate from confirmed claim facts.">{observations}</Panel>
+    </div>}
+  </>;
 }

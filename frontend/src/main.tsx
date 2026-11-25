@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { Activity, BookOpen, ChevronDown, ChevronRight, ClipboardList, FlaskConical, LayoutDashboard, LogIn, Menu, MessageSquare, RotateCcw, Shield, Truck, X } from 'lucide-react';
-import { useRef, useState, type FormEvent } from 'react';
+import { useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { client, type Turn } from './api';
@@ -12,6 +12,7 @@ import { Operations, OperatorClaim } from './operations';
 import { Contractors, Evaluations } from './resources';
 import { Button } from './components/ui/button';
 import { Failure, Notice, providerName } from './shared';
+import { resetWalkthrough, Walkthrough, WalkthroughProgress } from './walkthrough';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -34,6 +35,7 @@ const tokenKey = (role: Role) => `claimpilot.session.${role}`;
 function App() {
   const location = useLocation();
   const navigate = useNavigate();
+  useLayoutEffect(() => { window.scrollTo(0, 0); }, [location.pathname]);
   const [sessions, setSessions] = useState<Record<Role, string>>(() => ({
     operator: sessionStorage.getItem(tokenKey('operator')) || '', claimant: sessionStorage.getItem(tokenKey('claimant')) || '',
   }));
@@ -101,6 +103,7 @@ function App() {
       queryClient.clear();
       for (const role of ['operator', 'claimant'] as const) sessionStorage.setItem(tokenKey(role), session[role]);
       sessionStorage.setItem('claimpilot.demo', 'true');
+      resetWalkthrough();
       setSessions(session);
       setDemoSession(true);
       setRevision(value => value + 1);
@@ -137,10 +140,12 @@ function App() {
           <button className="session-button" onClick={connect}><span className="session-avatar">{sessions[role] ? (role === 'operator' ? 'OP' : 'CL') : <LogIn size={15} />}</span>
             <span>{sessions[role] ? (role === 'operator' ? 'Operator session' : 'Claimant session') : 'Connect session'}</span><ChevronDown size={15} /></button></div>
       </header>
-      <main className="main-content" key={revision}>
+      <Walkthrough key={revision} enabled={demoSession && params.get('experience') === 'full'}>
+      <main className="main-content">
         {phase && <Notice>{phase}</Notice>}<Failure error={demoError} />
         {demoSession && demoAvailability.data?.provider &&
           <p className="demo-mode">{providerName(demoAvailability.data.provider)} · Isolated demo workspace</p>}
+        <WalkthroughProgress />
         <Routes>
           <Route path="/operator" element={<Operations token={sessions.operator} connect={connect} />} />
           <Route path="/claims/:claimID" element={<OperatorClaim token={sessions.operator} connect={connect} guided={demoSession} />} />
@@ -154,6 +159,7 @@ function App() {
           <Route path="*" element={<><h1>Page not found</h1><Link className="inline-link" to="/">Return home</Link></>} />
         </Routes>
       </main>
+      </Walkthrough>
     </div>
     {dialog && <SessionDialog role={dialog} connected={!!sessions[dialog]} close={() => setDialog(null)} update={update} />}
   </div>;
@@ -165,7 +171,7 @@ function SessionDialog({ role, connected, close, update }: { role: Role; connect
   return <div className="dialog-fade" onClick={close}>
     <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="session-heading" onClick={event => event.stopPropagation()}
       onKeyDown={event => { if (event.key === 'Escape') close(); }}>
-      <div className="row spread"><h2 id="session-heading">Connect {role} session</h2><Button aria-label="Close" size="icon" variant="ghost" onClick={close}><X /></Button></div>
+      <div className="row spread"><h2 id="session-heading">Connect {role} session</h2><span className="icon-tip" data-tooltip="Close session dialog"><Button aria-label="Close" size="icon" variant="ghost" onClick={close}><X /></Button></span></div>
       <p className="muted">Enter the {role} bearer token configured on your local backend. The session is stored in this browser tab.</p>
       <form className="stack" onSubmit={submit}><label>Bearer token<input type="password" autoFocus autoComplete="off" value={token}
         onChange={event => setToken(event.target.value)} /></label>

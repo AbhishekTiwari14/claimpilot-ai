@@ -8,6 +8,7 @@ import { AnswerView, Badge, Empty, Facts, Failure, Loading, Notice, Observations
   localTime, providerName, shortID, useAction, valueText } from './shared';
 import { Button } from './components/ui/button';
 import { ClaimProgress, scenarioFor } from './demo';
+import { Guide, Milestone, Tip, useWalkthrough } from './walkthrough';
 
 export function Operations({ token, connect }: { token: string; connect: () => void }) {
   const [filter, setFilter] = useState('all');
@@ -90,6 +91,7 @@ const interventions: Record<string, string> = {
 function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: string; guided: boolean }) {
   const api = client(token);
   const [params] = useSearchParams();
+  const journey = useWalkthrough();
   const scenario = scenarioFor(params.get('scenario'));
   const base = `/claims/${claimID}`;
   const action = useAction();
@@ -122,6 +124,8 @@ function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: st
   const selectedVersion = version || detail.policy_version || suggestedVersion;
   const canContinue = ['requires_intervention', 'awaiting_information'].includes(workflow?.status ?? '');
   const dispatching = ['approved', 'awaiting_acknowledgement', 'accepted'].includes(workflow?.status ?? '');
+  const offerKnowledge = !!journey && !journey.progress.knowledge && !workflow && claim.status === 'intake_completed';
+  const knowledgePath = `/showcase/rag?${new URLSearchParams({ claim: claimID, scenario: scenario.id, experience: 'full' })}`;
   const next = !detail.policy_version ? ['Bind the policy', 'Choose the matching version to let ClaimPilot check coverage.', '#policy-review'] :
     !workflow ? ['Run claim review', 'ClaimPilot will check the policy and look for eligible contractors.', '#workflow-review'] :
     canContinue ? ['Review required', interventions[workflow.reason ?? ''] || `Resolve ${label(workflow.reason).toLowerCase()} before retrying.`, '#workflow-review'] :
@@ -144,6 +148,9 @@ function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: st
     void action.run(`dispatch:${endpoint}:${JSON.stringify(body)}`, async key => { await api.post(endpoint, body, key); });
   };
   return <div className="stack">
+    <Milestone step="policy" when={!!(workflow?.policy_outcome || assessment)} />
+    <Milestone step="approval" when={!!workflow?.transitions.some(event => event.node === 'approval' && event.status === 'approved')} />
+    <Milestone step="dispatch" when={workflow?.status === 'accepted'} />
     <Link className="inline-link" to="/operator">← All claims</Link>
     <div className="page-heading"><div><h1>{guided ? 'Agentic Workflow' : 'Claim review'}</h1><p>{valueText(claim.facts.damage_type?.value)} · {valueText(claim.facts.property_location?.value)}</p></div>
       <div className="row wrap"><Badge value={claim.status} /><Badge value={urgency.level} /></div></div>
@@ -151,10 +158,20 @@ function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: st
     {action.pending && <Loading />}
     {urgency.mandatory_escalation && <Notice kind="error">Urgent human assistance required.</Notice>}
     <ClaimProgress stage={dispatching ? 3 : claim.status === 'intake_completed' ? 2 : claim.status === 'awaiting_customer_confirmation' ? 1 : 0} />
-    <section className="next-action"><div><strong>{next[0]}</strong><p>{next[1]}</p></div>
-      <Button asChild variant="outline"><a href={next[2]}>Go to step <ArrowRight /></a></Button></section>
+    {offerKnowledge ? <section className="next-action"><div><strong>Explore how ClaimPilot reads a document</strong><p>Import a separate sample, then return to this claim. The claim’s policy is kept separate.</p></div>
+      <div className="row wrap"><Button asChild><Link to={knowledgePath}><BookOpen /> Explore the knowledge base</Link></Button>
+        <Button variant="ghost" onClick={() => journey.record('knowledge', 'skipped')}>Skip and review claim</Button></div>
+      <Guide step="explore-sources">This optional stop shows how a source becomes searchable before an answer can cite it.</Guide>
+    </section> : <section className="next-action"><div><strong>{next[0]}</strong><p>{next[1]}</p></div>
+      <Button asChild><a href={next[2]}>Go to step <ArrowRight /></a></Button></section>}
+    <nav aria-label="Claim sections" className="section-nav">
+      <a href="#claim-overview">Overview</a><a href="#damage-evidence">Damage Evidence</a><a href="#policy-review">Policy Assessment</a>
+      {workflow && <a href="#ai-activity">AI Activity</a>}<a href="#workflow-review">Review &amp; approve</a>
+      {dispatchQuery.data && <a href="#dispatch-review">Dispatch</a>}
+    </nav>
     {workflow && <div className="split">
-      <Panel title="Execution timeline" caption="Completed steps are saved as checkpoints. You can return to a paused workflow.">
+      <Panel id="ai-activity" title="AI activity" caption="Completed steps are saved so you can return to a paused review.">
+        <p className="row">Workflow history <Tip text="A checkpoint saves workflow state so it can resume from the same step." /></p>
         <ol className="timeline">{workflow.transitions.map((event, index) =>
           <li key={index}><span /><div><strong>{nodeLabels[event.node] || label(event.node)}</strong> · {label(event.status)}
             {event.reason && <p>{label(event.reason)}</p>}</div></li>)}</ol>
@@ -168,10 +185,11 @@ function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: st
       </Panel>
     </div>}
     <div className="split">
-      <Panel title="Confirmed facts" caption={urgency.reasons.map(label).join(' · ')}><Facts facts={claim.facts} confirmedOnly /></Panel>
-      <Panel title="Photo observations" caption="Image evidence is displayed separately from confirmed facts."><Observations analyses={detail.analyses} /></Panel>
+      <Panel id="claim-overview" title="Confirmed facts" caption={urgency.reasons.map(label).join(' · ')}><Facts facts={claim.facts} confirmedOnly /></Panel>
+      <Panel id="damage-evidence" title="Damage evidence" caption="Image evidence is displayed separately from confirmed facts."><Observations analyses={detail.analyses} /></Panel>
     </div>
     <Panel id="policy-review" title="Policy assessment" caption="Preliminary guidance for operator review.">
+      {!offerKnowledge && !detail.policy_version && <Guide step="bind-policy">Link the suggested policy version to this claim. The document used in the knowledge demo does not change this choice.</Guide>}
       <div className="row wrap"><span>Policy {policy}</span><label className="sr-only" htmlFor="policy-version">Policy version</label>
         <select id="policy-version" value={selectedVersion} onChange={event => setVersion(event.target.value)}>
           <option value="">Select version</option>{[...new Set([...versions, ...(detail.policy_version ? [detail.policy_version] : [])])].map(item => <option key={item}>{item}</option>)}</select>
@@ -190,7 +208,8 @@ function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: st
         <details key={source.chunk_id}><summary>{source.section || source.filename}<small>{source.filename}</small></summary><blockquote>{source.excerpt}</blockquote></details>)}</div> :
         workflow?.policy_citations?.length ? <p className="muted">{sources.isPending ? 'Loading workflow citations…' : 'The original citations are no longer available for this claim snapshot.'}</p> : null}
     </Panel>
-    <Panel id="workflow-review" title="Claim workflow" caption="Review state and resume the current checkpoint.">
+    <Panel id="workflow-review" title="Review and approval" caption="Check the recommendation and record a human decision.">
+      {detail.policy_version && !workflow && !offerKnowledge && <Guide step="run-review">Start the review to assess the bound policy and check which contractors can help.</Guide>}
       <div className="row wrap"><label htmlFor="workflow-id">Workflow</label>
         <select id="workflow-id" value={workflowID || ''} onChange={event => setWorkflowChoice(event.target.value)}>
           <option value="">No workflow selected</option>{detail.workflow_ids.map((id, i) =>
@@ -215,15 +234,16 @@ function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: st
           })}>Resume after review</Button>}
         {run.data && <ProposalCard run={run.data} catalog={catalog.data ?? []} />}
         {workflow.status === 'awaiting_approval' && workflow.pause_id && <div className="inset stack tight">
+          <Guide key={workflow.proposal_version} step={`approval-${workflow.proposal_version}`}>Read the recommendation and approve this version if you agree. The assistant cannot approve its own proposal.</Guide>
           <label htmlFor="approval-reason">Decision reason for proposal v{workflow.proposal_version}</label>
           <textarea id="approval-reason" rows={2} value={reason} maxLength={500} onChange={event => setReason(event.target.value)} />
           <div className="row wrap"><Button disabled={action.pending || !reason.trim() || !run.data?.proposal || run.data.proposal.stale}
             onClick={() => decision('approve')}><ShieldCheck /> Approve exact version</Button>
             <Button variant="destructive" disabled={action.pending || !reason.trim()} onClick={() => decision('reject')}>Reject proposal</Button></div>
         </div>}
-        {workflow.status === 'approved' && <Button disabled={action.pending} onClick={() => dispatchPost(`${path}/dispatch`, {
+        {workflow.status === 'approved' && <><Guide key={workflow.proposal_version} step={`send-${workflow.proposal_version}`}>Send the approved proposal to the simulated contractor.</Guide><Button disabled={action.pending} onClick={() => dispatchPost(`${path}/dispatch`, {
           proposal_id: workflow.proposal_id, proposal_version: workflow.proposal_version,
-        })}><Truck /> Send simulated dispatch</Button>}
+        })}><Truck /> Send simulated dispatch</Button></>}
       </div>}
     </Panel>
     {dispatchQuery.data && <Panel id="dispatch-review" title="Simulated dispatch summary" caption="Acknowledgement decisions, deadlines and SLA outcomes.">
@@ -235,11 +255,14 @@ function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: st
         <p>SLA: {label(row.sla_outcome)} · {label(row.sla.provenance)} · {row.sla.acknowledgement_limit_minutes} min acknowledgement</p>
         {row.sla.sources.map(source => <details key={source.chunk_id}><summary>{source.section || source.filename}</summary><blockquote>{source.excerpt}</blockquote></details>)}
         {row.status === 'awaiting_acknowledgement' && <div className="row wrap">
+          <Guide key={row.proposal_version} step={`response-${row.proposal_version}`}>Reject the first proposal to see a replacement, or accept to complete the simulation.</Guide>
           <Button disabled={action.pending} onClick={() => dispatchPost(`${path}/dispatch/${row.id}/response`, { outcome: 'accepted' })}>Simulate acceptance</Button>
           <Button variant="outline" disabled={action.pending} onClick={() => dispatchPost(`${path}/dispatch/${row.id}/response`, { outcome: 'rejected' })}>Reject and find replacement</Button>
           <Button variant="outline" disabled={action.pending} onClick={() => dispatchPost(`${path}/dispatch/${row.id}/sla`)}><Clock3 /> Process SLA</Button>
         </div>}
       </article>)}
+      {guided && workflow?.status === 'accepted' && <div className="row wrap"><Notice kind="success">Walkthrough complete. The simulated contractor accepted.</Notice>
+        <Button asChild variant="outline"><Link to={`/evaluations?${params}`}>Explore AI evaluations <ArrowRight /></Link></Button></div>}
     </Panel>}
   </div>;
 }
