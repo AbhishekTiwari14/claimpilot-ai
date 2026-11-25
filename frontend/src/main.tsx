@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { Activity, BookOpen, ChevronDown, ChevronRight, ClipboardList, FlaskConical, LayoutDashboard, LogIn, Menu, MessageSquare, RotateCcw, Shield, Truck, X } from 'lucide-react';
-import { useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { client, type Turn } from './api';
@@ -53,9 +53,17 @@ function App() {
     },
   });
   const role = location.pathname.startsWith('/customer') ? 'claimant' : 'operator';
+  const params = new URLSearchParams(location.search);
+  const experience = experienceFor(params.get('experience'));
   const items = role === 'claimant' ? customerNav : navigation;
-  const heading = role === 'claimant' ? items.find(item => item.to === location.pathname)?.name ?? 'Customer portal' : location.pathname.startsWith('/claims/') ? 'Claim detail' :
-    navigation.find(item => item.to === location.pathname)?.name || 'Workspace';
+  const heading = location.pathname === '/customer' && experience === 'vision' ? 'Damage Analysis' :
+    location.pathname === '/customer' && experience === 'chat' ? 'Conversational AI' :
+    location.pathname.startsWith('/claims/') ? 'Claim Review' :
+    location.pathname === '/showcase/rag' ? 'Explore the Knowledge Base' :
+    items.find(item => item.to === location.pathname)?.name ?? 'Page Not Found';
+  useEffect(() => {
+    document.title = location.pathname === '/' ? 'ClaimPilot AI | Property Claims' : `${heading} | ClaimPilot AI`;
+  }, [heading, location.pathname]);
   const connect = () => setDialog(role);
   const update = (selected: Role, token: string) => {
     if (demoSession) {
@@ -114,13 +122,12 @@ function App() {
   };
   if (location.pathname === '/') return <Landing enabled={demoAvailability.data?.enabled === true}
     loading={demoAvailability.isPending} phase={phase} error={demoError} launch={(id, experience) => void launch(id, experience)} />;
-  const params = new URLSearchParams(location.search);
   return <div className="app">
     {menu && <button className="mobile-overlay" aria-label="Close navigation" onClick={() => setMenu(false)} />}
     <aside className={`sidebar ${menu ? 'open' : ''}`}>
       <Link to="/" className="brand" onClick={() => setMenu(false)}><span className="brand-icon"><Shield size={21} /><i /></span>
         <span>ClaimPilot <b>AI</b><small>INSURANCE OPERATIONS</small></span></Link>
-      <div className="sidebar-workspace"><span className="workspace-icon"><ClipboardList size={17} /></span><div><strong>{role === 'claimant' ? 'Customer portal' : 'Claims operator'}</strong><small>{demoSession ? 'Interactive demo' : 'Claims workspace'}</small></div></div>
+      <div className="sidebar-workspace"><span className="workspace-icon"><ClipboardList size={17} /></span><div><strong>{role === 'claimant' ? 'Customer portal' : 'Claims operator'}</strong><small>{demoSession ? (demoAvailability.data?.provider ? providerName(demoAvailability.data.provider) : 'Interactive demo') : 'Claims workspace'}</small></div></div>
       <nav aria-label={role === 'claimant' ? 'Customer navigation' : 'Operator navigation'}><div className="nav-title">WORKSPACE</div>
         {items.map(({ to, name, icon: Icon }) => <NavLink to={to} end className={({ isActive }) =>
           `nav-item ${isActive || (to === '/operator' && location.pathname.startsWith('/claims/')) ? 'active' : ''}`}
@@ -143,8 +150,6 @@ function App() {
       <Walkthrough key={revision} enabled={demoSession && params.get('experience') === 'full'}>
       <main className="main-content">
         {phase && <Notice>{phase}</Notice>}<Failure error={demoError} />
-        {demoSession && demoAvailability.data?.provider &&
-          <p className="demo-mode">{providerName(demoAvailability.data.provider)} · Isolated demo workspace</p>}
         <WalkthroughProgress />
         <Routes>
           <Route path="/operator" element={<Operations token={sessions.operator} connect={connect} />} />

@@ -5,7 +5,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { client, type Analysis, type Claim, type ClaimRow, type History, type Photo, type Turn } from './api';
 import { Badge, Empty, Facts, Failure, Loading, Notice, Observations, Panel, fieldLabel, label, shortID, useAction, valueText } from './shared';
 import { Button } from './components/ui/button';
-import { ClaimProgress, experienceFor, photoAttribution, sampleFile, sampleMessages, scenarioFor, type Experience } from './demo';
+import { experienceFor, photoAttribution, sampleFile, sampleMessages, scenarioFor, type Experience } from './demo';
 import { Guide, Milestone, useWalkthrough } from './walkthrough';
 
 const suggestedFields: Record<string, [number, string]> = {
@@ -28,7 +28,8 @@ export default function Customer({ token, connect, guided, list = false }: {
   const mutation = useAction();
   const claims = useQuery({ queryKey: ['customer-claims'], enabled: !!token, queryFn: () => api.get<ClaimRow[]>('/customer/claims') });
   return <div className="stack">
-    <div className="page-heading"><div><h1>{list ? 'My Claims' : experience === 'vision' ? 'Multimodal Damage Analysis' : experience === 'chat' ? 'Conversational AI' : 'Report Damage'}</h1><p>{list ? 'Resume a report or check your progress.' : experience === 'vision' ? 'Upload a photo to see what the model observes and where it is uncertain.' : 'Tell us what happened in your own words.'}</p></div>
+    <div className="page-heading"><div><h1>{list ? 'My Claims' : experience === 'vision' ? 'Multimodal Damage Analysis' : experience === 'chat' ? 'Conversational AI' : 'Report Damage'}</h1>
+      {guided && conversation && !list && experience !== 'vision' && <p>Sample claim · {scenario.title}</p>}</div>
       {token && <Button onClick={() => void mutation.run('new-conversation', async key => {
         const result = await api.post<Turn>('/conversations', undefined, key);
         setParams({ conversation: result.claim.conversation_id, ...(guided ? { scenario: scenario.id, experience } : {}) });
@@ -117,8 +118,6 @@ function Conversation({ token, conversation, guided, scenario, experience }: {
   return <>
     <Milestone step="report" when={ready || complete} />
     <Milestone step="confirm" when={complete} />
-    {guided && <Notice>Sample claim · {scenario.title} · Policy {scenario.policy} v1 · service ZIP {scenario.zip}</Notice>}
-    <ClaimProgress stage={progress?.dispatch_status ? 3 : complete ? 2 : claim.status === 'awaiting_customer_confirmation' ? 1 : 0} />
     <div className="customer-grid">
       <Panel title="Damage report" action={<Badge value={claim.status} />}>
         <div ref={chat} className="chat-log" role="log" aria-label="Claim conversation" onScroll={event => {
@@ -149,8 +148,6 @@ function Conversation({ token, conversation, guided, scenario, experience }: {
       </Panel>
       <Panel title="Claim checklist" caption="This updates with the assistant’s latest reply.">
         <div className="stack">
-          {claim.missing_fields.length > 0 && <Notice>Still needed: {claim.missing_fields.map(fieldLabel).join(', ')}.
-            {claim.missing_fields.includes('property_location') && ' Give the property address or the five-digit service ZIP. Room names belong under affected areas.'}</Notice>}
           <details className="claim-details" open><summary>Collected details <small>{Object.keys(suggestedFields).length - new Set([...claim.missing_fields, ...Object.keys(claim.conflicts)].filter(item => item in suggestedFields)).size} of {Object.keys(suggestedFields).length}</small></summary>
           {!complete ? <ul className="claim-checklist" aria-label="Collected and missing claim information">
             {Object.keys(suggestedFields).map(item => {

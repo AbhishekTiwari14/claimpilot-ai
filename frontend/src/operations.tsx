@@ -7,7 +7,7 @@ import { client, type Assessment, type ClaimDetail, type ClaimRow, type Contract
 import { AnswerView, Badge, Empty, Facts, Failure, Loading, Notice, Observations, Panel, label,
   localTime, providerName, shortID, useAction, valueText } from './shared';
 import { Button } from './components/ui/button';
-import { ClaimProgress, scenarioFor } from './demo';
+import { scenarioFor } from './demo';
 import { Guide, Milestone, Tip, useWalkthrough } from './walkthrough';
 
 export function Operations({ token, connect }: { token: string; connect: () => void }) {
@@ -123,16 +123,16 @@ function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: st
   const suggestedVersion = guided && policy === scenario.policy && versions.includes('v1') ? 'v1' : versions.length === 1 ? versions[0] : '';
   const selectedVersion = version || detail.policy_version || suggestedVersion;
   const canContinue = ['requires_intervention', 'awaiting_information'].includes(workflow?.status ?? '');
-  const dispatching = ['approved', 'awaiting_acknowledgement', 'accepted'].includes(workflow?.status ?? '');
   const offerKnowledge = !!journey && !journey.progress.knowledge && !workflow && claim.status === 'intake_completed';
   const knowledgePath = `/showcase/rag?${new URLSearchParams({ claim: claimID, scenario: scenario.id, experience: 'full' })}`;
-  const next = !detail.policy_version ? ['Bind the policy', 'Choose the matching version to let ClaimPilot check coverage.', '#policy-review'] :
-    !workflow ? ['Run claim review', 'ClaimPilot will check the policy and look for eligible contractors.', '#workflow-review'] :
-    canContinue ? ['Review required', interventions[workflow.reason ?? ''] || `Resolve ${label(workflow.reason).toLowerCase()} before retrying.`, '#workflow-review'] :
-    workflow.status === 'awaiting_approval' ? ['Review the recommendation', 'Read the evidence and record your decision for this exact version.', '#workflow-review'] :
-    workflow.status === 'approved' ? ['Send simulated dispatch', 'Approval is recorded. Send the request to the simulated contractor.', '#workflow-review'] :
-    workflow.status === 'awaiting_acknowledgement' ? ['Try a contractor response', 'Accept to complete the demo or reject to see reassignment and fresh approval.', '#dispatch-review'] :
-    ['Review the workflow', workflow.status === 'accepted' ? 'The simulated contractor accepted. Review the dispatch summary.' : 'Check the latest workflow decision below.', workflow.status === 'accepted' ? '#dispatch-review' : '#workflow-review'];
+  const next = !detail.policy_version ? ['Bind the policy', 'Choose the matching version to let ClaimPilot check coverage.', '#policy-review', 'Choose policy version'] :
+    !workflow ? ['Run claim review', 'ClaimPilot will check the policy and look for eligible contractors.', '#workflow-review', 'Open claim review'] :
+    canContinue ? ['Review required', interventions[workflow.reason ?? ''] || `Resolve ${label(workflow.reason).toLowerCase()} before retrying.`, '#workflow-review', 'Review intervention'] :
+    workflow.status === 'awaiting_approval' ? ['Review the recommendation', 'Read the evidence and record your decision for this exact version.', '#workflow-review', 'Review proposal'] :
+    workflow.status === 'approved' ? ['Ready to dispatch', 'Approval is recorded. Send the request to the simulated contractor.', '#workflow-review', 'Open dispatch controls'] :
+    workflow.status === 'awaiting_acknowledgement' ? ['Try a contractor response', 'Accept to complete the demo or reject to see reassignment and fresh approval.', '#dispatch-review', 'Simulate a response'] :
+    workflow.status === 'accepted' ? ['Dispatch accepted', 'The simulated contractor accepted.', '#dispatch-review', 'View dispatch summary'] :
+    ['Review the workflow', 'Check the latest workflow decision below.', '#workflow-review', 'View decision'];
   const post = (endpoint: string, body: unknown, after?: (result: DispatchSummary) => void) => {
     void action.run(`post:${endpoint}:${JSON.stringify(body)}`, async key => {
       const result = await api.post<DispatchSummary>(endpoint, body, key);
@@ -157,13 +157,12 @@ function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: st
     <Failure error={action.error || docs.error || catalog.error} />
     {action.pending && <Loading />}
     {urgency.mandatory_escalation && <Notice kind="error">Urgent human assistance required.</Notice>}
-    <ClaimProgress stage={dispatching ? 3 : claim.status === 'intake_completed' ? 2 : claim.status === 'awaiting_customer_confirmation' ? 1 : 0} />
     {offerKnowledge ? <section className="next-action"><div><strong>Explore how ClaimPilot reads a document</strong><p>Import a separate sample, then return to this claim. The claim’s policy is kept separate.</p></div>
       <div className="row wrap"><Button asChild><Link to={knowledgePath}><BookOpen /> Explore the knowledge base</Link></Button>
         <Button variant="ghost" onClick={() => journey.record('knowledge', 'skipped')}>Skip and review claim</Button></div>
       <Guide step="explore-sources">This optional stop shows how a source becomes searchable before an answer can cite it.</Guide>
     </section> : <section className="next-action"><div><strong>{next[0]}</strong><p>{next[1]}</p></div>
-      <Button asChild><a href={next[2]}>Go to step <ArrowRight /></a></Button></section>}
+      <Button asChild><a href={next[2]}>{next[3]} <ArrowRight /></a></Button></section>}
     <nav aria-label="Claim sections" className="section-nav">
       <a href="#claim-overview">Overview</a><a href="#damage-evidence">Damage Evidence</a><a href="#policy-review">Policy Assessment</a>
       {workflow && <a href="#ai-activity">AI Activity</a>}<a href="#workflow-review">Review &amp; approve</a>

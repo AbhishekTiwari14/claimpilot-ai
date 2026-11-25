@@ -31,14 +31,6 @@ export function sampleMessages(scenario: ReturnType<typeof scenarioFor>) {
   ];
 }
 
-export function ClaimProgress({ stage }: { stage: number }) {
-  return <ol className="claim-progress" aria-label="Claim progress">
-    {['Report damage', 'Confirm details', 'Review & approve', 'Simulated dispatch'].map((name, i) =>
-      <li key={name} data-state={i === stage ? 'current' : i < stage ? 'done' : 'next'}
-        aria-current={i === stage ? 'step' : undefined}><span>{i < stage ? '✓' : i + 1}</span>{name}</li>)}
-  </ol>;
-}
-
 export function Landing({ enabled, loading, phase, error, launch }: {
   enabled: boolean; loading: boolean; phase: string; error: unknown; launch: (scenario: string, experience?: Experience) => void;
 }) {
