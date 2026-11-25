@@ -30,3 +30,8 @@ class Settings(BaseSettings):
     claimpilot_llm_max_retries: int = Field(default=1, ge=0, le=3)
     claimpilot_intake_db: Path = Path("data/runtime/intake.sqlite3")
     claimpilot_claimants: list[ClaimantCredential] = Field(default_factory=list)
+    claimpilot_photo_max_bytes: int = Field(default=8 * 1024 * 1024, ge=1024, le=16 * 1024 * 1024)
+    claimpilot_photo_max_dimension: int = Field(default=6000, ge=1, le=10000)
+    claimpilot_photo_max_pixels: int = Field(default=16_000_000, ge=1, le=30_000_000)
+    claimpilot_photo_output_edge: int = Field(default=1024, ge=64, le=1536)
+    claimpilot_photos_per_claim: int = Field(default=30, ge=1, le=100)

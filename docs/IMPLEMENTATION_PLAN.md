@@ -46,7 +46,17 @@ Add the SQLite intake store, locally authenticated claimants, conversation and c
 
 See [Phase 2 CLI and API instructions](INTAKE_API.md).
 
-## Phase 3 — Knowledge base, policy evidence and urgency
+## Phase 3 — Multimodal damage analysis
+
+Add bounded photo uploads, safe local storage, a configurable vision adapter and separate typed observation records. Surface optional questions when photos and customer statements may disagree.
+
+- Validate JPEG, PNG and WebP from content. Reject malformed, animated or oversized files, strip metadata, deduplicate per claim, and restrict access across workspaces and claimants.
+- Analyze up to three selected images with visible evidence, tentative interpretations and explicit limitations. Offline fixtures are deterministic. Verify a public-domain sample with live Groq.
+- Provider errors preserve photos and can be retried without duplicating the analysis. Deleting a photo clears its dependent results, including pending work. Existing confirmation and safety workflows remain authoritative.
+
+See [Phase 3 example and API instructions](PHOTO_API.md).
+
+## Phase 4 — Knowledge base, policy evidence and urgency
 
 Introduce the downstream workflow and audit boundaries when integrating the first post-intake transition. Add preloaded synthetic documents, authorized PDF/DOCX/TXT/MD ingestion, document version and archive management, a rebuildable Chroma index with automatic indexing, and a read-only RAG playground API. Integrate scoped policy evidence, citation verification, triage rules, reviewer resolution and alerts. Test model tool selection under an allowlist and a budget.
 
@@ -55,13 +65,6 @@ Introduce the downstream workflow and audit boundaries when integrating the firs
 - Retrieval filters policy version, date and workspace, and each citation resolves to exact stored text. Empty, ambiguous, conflicting or unavailable evidence routes to staff review. Citation and instruction-injection fixtures cannot escape approved scope.
 - Immediate hazards receive the highest review priority even when data is incomplete. Unknown or conflicting hazard state requires staff clearance. Deterministic urgency matches every hard-gate fixture.
 - Rebuild the index from SQLite and pass the retrieval thresholds below against cached local weights.
-
-## Phase 4 — Claim photographs and evidence review
-
-Add private image uploads, a bounded vision adapter and separate typed observation records. Provide actor-scoped access to photos and an audit trail for confirmations.
-
-- Valid images are attached to the correct workspace and claim. Invalid formats, oversized images and unauthorized access are rejected.
-- A vision result surfaces visible evidence with uncertainty and photo provenance. An observation alone cannot overwrite confirmed facts or authorize dispatch. A reviewer-confirmed fact change carries auditable evidence and is visible as a new revision.
 
 ## Phase 5 — Contractor proposals, approval and simulated dispatch
 

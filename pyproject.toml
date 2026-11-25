@@ -5,8 +5,10 @@ description = "ClaimPilot AI backend"
 requires-python = ">=3.11,<3.12"
 dependencies = [
     "fastapi>=0.115,<1",
+    "pillow>=12.3,<14",
     "pydantic>=2.11,<3",
     "pydantic-settings>=2.8,<3",
+    "python-multipart>=0.0.22,<1",
     "uvicorn>=0.34,<1",
 ]
 

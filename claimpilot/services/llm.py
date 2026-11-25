@@ -1,3 +1,5 @@
+from base64 import b64encode
+import json
 import logging
 import math
 from collections.abc import Callable
@@ -34,10 +36,12 @@ class LLMService:
         settings: Settings,
         *,
         chat_model: "ChatGroq | None" = None,
+        vision_model: "ChatGroq | None" = None,
         wait: Callable[[float], None] = sleep,
     ) -> None:
         self._settings = settings
         self._chat_model = chat_model
+        self._vision_model = vision_model
         self._wait = wait
 
     def structured(
@@ -49,25 +53,44 @@ class LLMService:
         operation: str,
         offline_result: Callable[[], dict] | None = None,
         validate: Callable[[Output], None] | None = None,
+        images: list[tuple[str, bytes]] | None = None,
     ) -> Output:
         start = monotonic()
         provider = self._settings.claimpilot_llm_provider
-        model = self._settings.groq_model if provider == "groq" else "offline-fixture"
+        vision = images is not None
+        model = self._settings.groq_vision_model if vision else self._settings.groq_model
+        if provider == "offline":
+            model = "offline-fixture"
         status = "internal_error"
         retries = 0
         usage = {}
         try:
+            if images is not None and not 1 <= len(images) <= 3:
+                raise LLMError("invalid_image_count")
             if provider == "offline":
                 if offline_result is None:
                     raise LLMError("offline_input_unsupported")
                 parsed = offline_result()
             else:
-                chat_model = self._get_chat_model()
+                chat_model = self._get_chat_model(vision=vision)
                 model = chat_model.model_name
-                runnable = chat_model.with_structured_output(
-                    schema, method="json_schema", strict=True, include_raw=True
-                )
-                messages = [("system", system_prompt), ("human", user_payload)]
+                if images is not None:
+                    runnable = chat_model.with_structured_output(schema, method="json_mode", include_raw=True)
+                    system_prompt += "\nSchema:\n" + json.dumps(schema.model_json_schema())
+                    content = [{"type": "text", "text": user_payload}]
+                    for photo_id, data in images:
+                        content.extend([
+                            {"type": "text", "text": f"Image identifier: {photo_id}"},
+                            {"type": "image_url", "image_url": {
+                                "url": "data:image/jpeg;base64," + b64encode(data).decode("ascii"),
+                            }},
+                        ])
+                    messages = [("system", system_prompt), ("human", content)]
+                else:
+                    runnable = chat_model.with_structured_output(
+                        schema, method="json_schema", strict=True, include_raw=True
+                    )
+                    messages = [("system", system_prompt), ("human", user_payload)]
                 while True:
                     try:
                         response = self._invoke(runnable, messages)
@@ -90,10 +113,15 @@ class LLMService:
                     or raw.response_metadata.get("finish_reason") not in (None, "stop")
                 ):
                     raise LLMError("invalid_output")
-                parsed = response["parsed"]
+                parsed = raw.content if vision else response["parsed"]
 
             try:
-                result = schema.model_validate(parsed)
+                if vision and provider == "groq":
+                    if not isinstance(parsed, str):
+                        raise ValueError("Expected JSON text")
+                    result = schema.model_validate_json(parsed)
+                else:
+                    result = schema.model_validate(parsed)
                 if validate is not None:
                     validate(result)
             except ValueError:
@@ -120,9 +148,10 @@ class LLMService:
                 usage.get("total_tokens"),
             )
 
-    def _get_chat_model(self) -> "ChatGroq":
-        if self._chat_model is not None:
-            return self._chat_model
+    def _get_chat_model(self, *, vision: bool) -> "ChatGroq":
+        cached = self._vision_model if vision else self._chat_model
+        if cached is not None:
+            return cached
         key = self._settings.groq_api_key
         if key is None or not key.get_secret_value().strip():
             raise LLMError("missing_credentials")
@@ -131,14 +160,18 @@ class LLMService:
         except ModuleNotFoundError:
             raise LLMError("missing_provider_dependencies") from None
 
-        self._chat_model = ChatGroq(
-            model=self._settings.groq_model,
+        model = ChatGroq(
+            model=self._settings.groq_vision_model if vision else self._settings.groq_model,
             api_key=key,
             timeout=self._settings.claimpilot_llm_timeout_seconds,
             max_retries=0,
             max_tokens=2048,
         )
-        return self._chat_model
+        if vision:
+            self._vision_model = model
+        else:
+            self._chat_model = model
+        return model
 
     @staticmethod
     def _invoke(runnable, messages):

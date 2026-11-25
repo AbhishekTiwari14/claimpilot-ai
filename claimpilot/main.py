@@ -8,9 +8,11 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from claimpilot.api.intake import router
+from claimpilot.api.photos import router as photos_router
 from claimpilot.config import Settings
 from claimpilot.services.llm import LLMService
-from claimpilot.storage.intake import IntakeError, IntakeStore
+from claimpilot.storage.intake import IntakeError
+from claimpilot.storage.photos import PhotoStore
 
 
 class HealthResponse(BaseModel):
@@ -19,7 +21,7 @@ class HealthResponse(BaseModel):
 
 def create_app(settings: Settings | None = None, *, llm: LLMService | None = None) -> FastAPI:
     settings = settings if settings is not None else Settings()
-    store = IntakeStore(settings.claimpilot_intake_db)
+    store = PhotoStore(settings.claimpilot_intake_db)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -31,6 +33,7 @@ def create_app(settings: Settings | None = None, *, llm: LLMService | None = Non
     app.state.intake_store = store
     app.state.llm = llm if llm is not None else LLMService(settings)
     app.include_router(router)
+    app.include_router(photos_router)
 
     @app.exception_handler(IntakeError)
     async def intake_error(_: Request, error: IntakeError) -> JSONResponse:

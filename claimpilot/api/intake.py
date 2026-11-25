@@ -11,7 +11,9 @@ from claimpilot.schemas.conversation import (
 )
 from claimpilot.services.intake import apply_turn, immediate_safety_concern
 from claimpilot.services.llm import LLMError
-from claimpilot.storage.intake import IntakeError, IntakeStore
+from claimpilot.services.photo_analysis import photo_follow_ups
+from claimpilot.storage.intake import IntakeError
+from claimpilot.storage.photos import PhotoStore
 
 router = APIRouter(prefix="/api/v1", tags=["claim intake"])
 bearer = HTTPBearer(auto_error=False)
@@ -32,12 +34,21 @@ def current_claimant(
     raise IntakeError(401, "unauthorized", "A valid claimant credential is required.")
 
 
-def intake_store(request: Request) -> IntakeStore:
+def intake_store(request: Request) -> PhotoStore:
     return request.app.state.intake_store
 
 
 Actor = Annotated[Claimant, Depends(current_claimant)]
-Store = Annotated[IntakeStore, Depends(intake_store)]
+Store = Annotated[PhotoStore, Depends(intake_store)]
+
+
+def with_photo_questions(store: PhotoStore, actor: Claimant, claim: ClaimView) -> ClaimView:
+    analyses = store.analyses(actor, claim.claim_id, completed_only=True)
+    return claim.model_copy(update={"photo_follow_ups": photo_follow_ups(claim, analyses)})
+
+
+def turn_with_photo_questions(store: PhotoStore, actor: Claimant, turn: IntakeTurn) -> IntakeTurn:
+    return turn.model_copy(update={"claim": with_photo_questions(store, actor, turn.claim)})
 
 
 @router.post("/conversations", status_code=201)
@@ -55,7 +66,7 @@ def send_message(
     safety_concern = immediate_safety_concern(payload.message)
     pending = store.reserve(actor, conversation_id, key, payload, immediate_safety=safety_concern)
     if isinstance(pending, IntakeTurn):
-        return pending
+        return turn_with_photo_questions(store, actor, pending)
     try:
         extraction = None
         if not safety_concern:
@@ -67,11 +78,11 @@ def send_message(
         )
     except LLMError as error:
         if replay := store.record_failure(actor, pending, error.code):
-            return replay
+            return turn_with_photo_questions(store, actor, replay)
         raise IntakeError(
             503, "extraction_unavailable", "Your message was saved. Retry with the original request key."
         ) from None
-    return store.finish(actor, pending, reply)
+    return turn_with_photo_questions(store, actor, store.finish(actor, pending, reply))
 
 
 @router.get("/conversations/{conversation_id}")
@@ -85,7 +96,7 @@ def conversation_history(
 
 @router.get("/claims/{claim_id}")
 def get_claim(claim_id: UUID, actor: Actor, store: Store) -> ClaimView:
-    return store.claim(actor, claim_id)
+    return with_photo_questions(store, actor, store.claim(actor, claim_id))
 
 
 @router.post("/claims/{claim_id}/confirm")

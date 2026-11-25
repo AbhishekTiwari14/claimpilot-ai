@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, computed_field, field_validator
 
 from claimpilot.schemas.intake import ClaimField, MAX_REPORT_LENGTH
+from claimpilot.schemas.photos import PhotoFollowUp
 
 IntakeStatus = Literal[
     "collecting_information",
@@ -88,6 +89,7 @@ class ConversationMessage(BaseModel):
 class ClaimView(ClaimState):
     pending_message_id: UUID | None = None
     processing_error: str | None = None
+    photo_follow_ups: list[PhotoFollowUp] = Field(default_factory=list)
 
 
 class IntakeTurn(BaseModel):

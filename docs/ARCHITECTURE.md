@@ -31,7 +31,7 @@ A workspace is the tenant boundary represented by `tenant_id` in storage. Resolv
 | `storage/` | Versioned SQLite migrations, transactions and repository queries. Chroma policy index adapter. |
 | `tests/`, future `evals/` | Unit, graph, API and crash-path tests. Versioned synthetic scenarios and score runner. |
 
-The backend serves health and conversational intake. Phase 2 processes turns synchronously and persists each one before contacting the model. The planned workflow worker will serialize downstream graph execution per claim and scan due SLAs and approval expiry. The future React/TypeScript client uses versioned OpenAPI types, Tailwind and shadcn/ui. [FastAPI settings](https://fastapi.tiangolo.com/advanced/settings/) · [shadcn/ui Vite setup](https://ui.shadcn.com/docs/installation/vite)
+The backend serves health, conversational intake, and damage photo evidence. Intake and photo analysis use synchronous API calls with a persisted reservation before provider I/O. The planned workflow worker will serialize downstream graph execution per claim and scan due SLAs and approval expiry. The future React/TypeScript client uses versioned OpenAPI types, Tailwind and shadcn/ui. [FastAPI settings](https://fastapi.tiangolo.com/advanced/settings/) · [shadcn/ui Vite setup](https://ui.shadcn.com/docs/installation/vite)
 
 ### Phase 1 model boundary
 
@@ -63,7 +63,11 @@ Citations include document and revision IDs, title, chunk ID, page or section lo
 
 ### Photograph observations and confirmed facts
 
-Store original uploads privately with authenticated workspace and claim ownership checks, file type and size validation, and restricted access. Create a separate observation record for each model result, with photo ID, model/prompt version, timestamp, visible evidence and uncertainty. A photo may suggest visible damage or an affected area. Cause, incident time, urgency and policy details require independently verified context. The customer portal and operations dashboard label photo observations as unconfirmed. Only an authorized, audited confirmation with appropriate evidence updates the claim fact revision. Conflicting photo and customer evidence stays visible for review.
+Phase 3 checks workspace and claimant through the existing claim scope before accepting a photo. A bounded multipart parser limits upload size. Pillow decodes single-frame JPEG, PNG or WebP, checks edge and pixel counts before loading pixels, applies orientation, and encodes a clean JPEG to remove metadata and trailing data. The upload filename has no role in storage. A generated UUID identifies a local SQLite BLOB, and a per-claim unique index deduplicates the normalized content by SHA-256. File bytes and metadata commit together. [Pillow image handling](https://pillow.readthedocs.io/en/stable/reference/Image.html)
+
+An analysis links one to three selected photo UUIDs and stores its provider, model, attempt count, status, and typed report separately from claim facts. The existing LLM service sends normalized JPEGs as data URLs to the configurable Qwen vision model using documented JSON mode. Local validation checks the exact image IDs and order, bounds lists and rejects unsupported safety claims and extra fields. Direct visible indicators, materials and areas are distinct from apparent severity, tentative safety cues and suggested trades. The prompt treats photos, embedded text and customer context as untrusted. [Groq vision](https://console.groq.com/docs/vision)
+
+SQLite reserves the analysis and stores selected IDs before model I/O. Failed analyses preserve the photographs and retry under the same idempotency key. Deletion erases the stored BLOB and clears every linked analysis result in one transaction. An in-flight result can commit only while its current attempt is pending, so a deletion wins against a late model response. Completed analyses contribute live optional questions to claim reads and intake turns, including possible disagreement about damage types and rooms. The service builds these chat questions from validated cues and templates. Photo observations leave claim facts, safety state, and confirmation requirements intact. Previously stored turns contain no derived photo questions, so deleted results do not reappear in a replay.
 
 ## Workflow and routing
 
@@ -142,8 +146,9 @@ IDs are server-generated UUID text unless otherwise stated. UTC times are RFC 33
 | `knowledge_documents` | `id PK, tenant_id, scope, policy_version_id?, title, active_revision_id?, archived_at?, created_at`. Require policy version for policy scope and enforce the same workspace in the write transaction. |
 | `document_revisions` | `id PK, document_id FK, revision, media_type, storage_key, digest, indexing_state, error_code?, created_at`. Unique document/revision. |
 | `document_chunks` | `id PK, revision_id FK, ordinal, locator_json, text, digest`. Unique revision/ordinal. Workspace and policy scope derive from the document in SQLite and are copied to index metadata. |
-| `claim_photos` | `id PK, claim_id FK, tenant_id, storage_key, media_type, size_bytes, digest, uploaded_by, created_at`. The claim and photo share the workspace. |
-| `photo_observations` | `id PK, photo_id FK, model, prompt_version, observations_json, created_at`. An observation remains separate from fact revisions. Audited fact confirmations may reference it as supporting evidence. |
+| `claim_photos` | `id PK, claim_id FK, width, height, size_bytes, sha256?, original_sha256?, data?, created_at`. Ownership derives from the claim. The BLOB and hashes are nulled on deletion. |
+| `photo_analyses` | `id PK, claim_id FK, photo_ids_json, status, provider, model, attempts, result_json?, error_code?`. Typed observations remain separate from fact revisions. |
+| `photo_analysis_images` | `analysis_id FK, photo_id FK`. Composite primary key. The service validates claim scope when linking photos. |
 | `contractors` | `id PK, tenant_id, name, trades_json, areas_json, active, credential_valid_until, insurance_valid_until, availability_json, version`. Index tenant/active. |
 | `review_items` | `id PK, claim_id FK, reason_codes_json, evidence_json, status, created_at, resolved_at?, resolution_json?`. One open item per claim. |
 | `dispatch_proposals` | `id PK, claim_id FK, contractor_id FK, basis_claim_version, fact_revision, snapshot_json, digest, expires_at, status, created_at`. One pending proposal per claim. Immutable snapshot includes scope, policy clearance, vendor version, ETA and completion deadline. |
@@ -163,7 +168,7 @@ Approval creation and dispatch reservation verify the proposed scope, subject, d
 
 ## API contract
 
-The current API serves liveness and the Phase 2 intake endpoints. Future workflow, knowledge and photo routes are planned under `/api/v1`. Use JSON and Pydantic-generated OpenAPI. Local synthetic users receive development bearer credentials configured outside Git. Roles are claimant, reviewer, knowledge manager and simulator. The server derives identity, tenant and permissions. A claim's owner can view its customer projection. Reviewers in the tenant can view operational evidence and audit data. Simulator credentials are scoped to simulator events only.
+The current API serves liveness, intake and photo endpoints. Future workflow and knowledge routes are planned under `/api/v1`. Use JSON and Pydantic-generated OpenAPI. Local synthetic users receive development bearer credentials configured outside Git. Roles are claimant, reviewer, knowledge manager and simulator. The server derives identity, tenant and permissions. A claim's owner can view its customer projection. Reviewers in the tenant can view operational evidence and audit data. Simulator credentials are scoped to simulator events only.
 
 | Endpoint | Input | Success |
 | --- | --- | --- |
@@ -180,9 +185,14 @@ The current API serves liveness and the Phase 2 intake endpoints. Future workflo
 | `POST /simulator/dispatches/{dispatch_id}/events` | `{external_event_id, status, status_version, occurred_at}` | 202 `{event_id}`, simulator only. Server validates status against simulator ledger. |
 | `GET /claims/{id}/audit` | `after_seq?, limit?` | 200 cursor page of ordered audit events, reviewer only |
 | `GET /claims/{id}/report` | `version?` | 200 typed report or 404 while unavailable. The customer view excludes internal-only evidence and actor IDs |
-| `POST /claims/{id}/photos` | Multipart image | 202 photo metadata and queued work |
-| `GET /claims/{id}/photos` | `cursor?, limit?` | 200 scoped photo page with observation and confirmation status |
-| `GET /claims/{id}/photos/{photo_id}/content` | None | 200 authorized image bytes |
+| `POST /claims/{id}/photos` | Multipart `photo` file | 201 metadata and photo Location |
+| `GET /claims/{id}/photos` | None | 200 list of active photos |
+| `GET /claims/{id}/photos/{photo_id}` | None | 200 photo metadata |
+| `GET /claims/{id}/photos/{photo_id}/content` | None | 200 private JPEG bytes |
+| `DELETE /claims/{id}/photos/{photo_id}` | None, idempotency key required | 204 photo deleted and dependent analyses invalidated |
+| `POST /claims/{id}/photo-analyses` | `{photo_ids, context?}` | 200 completed analysis, 503 failed analysis, or 409 if invalidated |
+| `GET /claims/{id}/photo-analyses` | None | 200 latest 20 analyses |
+| `GET /claims/{id}/photo-analyses/{analysis_id}` | None | 200 scoped status and report if active and completed |
 | `GET /claims/{id}/runs` | `cursor?, limit?` | 200 reviewer-only execution metadata |
 | `POST /knowledge/documents` | Multipart file, title, scope, policy version when required | 202 document and pending revision, knowledge manager only |
 | `GET /knowledge/documents` | `scope?, policy_version_id?, indexing_state?, cursor?, limit?` | 200 authorized document metadata page |

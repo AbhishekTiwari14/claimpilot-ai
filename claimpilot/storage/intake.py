@@ -44,6 +44,39 @@ CREATE TABLE IF NOT EXISTS idempotency_requests (
 );
 """
 
+PHOTO_SCHEMA = """
+CREATE TABLE claim_photos (
+    id TEXT PRIMARY KEY,
+    claim_id TEXT NOT NULL REFERENCES claims(id),
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    sha256 TEXT,
+    original_sha256 TEXT,
+    data BLOB,
+    created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX unique_claim_photo ON claim_photos(claim_id, sha256) WHERE data IS NOT NULL;
+CREATE TABLE photo_analyses (
+    id TEXT PRIMARY KEY,
+    claim_id TEXT NOT NULL REFERENCES claims(id),
+    photo_ids_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('pending', 'completed', 'failed', 'invalidated')),
+    provider TEXT NOT NULL CHECK(provider IN ('offline_fixture', 'groq')),
+    model TEXT NOT NULL,
+    attempts INTEGER NOT NULL CHECK(attempts >= 1),
+    result_json TEXT,
+    error_code TEXT
+);
+CREATE INDEX analyses_by_claim ON photo_analyses(claim_id);
+CREATE TABLE photo_analysis_images (
+    analysis_id TEXT NOT NULL REFERENCES photo_analyses(id),
+    photo_id TEXT NOT NULL REFERENCES claim_photos(id),
+    PRIMARY KEY (analysis_id, photo_id)
+);
+CREATE INDEX analyses_by_photo ON photo_analysis_images(photo_id);
+"""
+
 
 class IntakeError(RuntimeError):
     def __init__(self, status: int, code: str, message: str) -> None:
@@ -85,7 +118,13 @@ class IntakeStore:
                     if statement.strip():
                         db.execute(statement)
                 db.execute("PRAGMA user_version = 1")
-            elif version != 1:
+                version = 1
+            if version == 1:
+                for statement in PHOTO_SCHEMA.split(";"):
+                    if statement.strip():
+                        db.execute(statement)
+                db.execute("PRAGMA user_version = 2")
+            elif version != 2:
                 raise RuntimeError("Unsupported ClaimPilot database version")
 
     @staticmethod
