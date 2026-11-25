@@ -8,6 +8,16 @@ ClaimPilot handles synthetic property claims and simulated restoration operation
 - ClaimLens documents bounded tool use, rules that govern routing, human authorization, an append-only event log, and a credential-free evaluation gate. ClaimPilot adopts those patterns using relational claim records and an append-only activity history. Its restoration workflow uses independently specified rules and contracts. [ClaimLens](https://github.com/kb2326/claimlens)
 - Research used the public repository documentation and publication listings. ClaimPilot source, workflow, schema and contracts were authored independently.
 
+## V1 interfaces and access
+
+| Interface | V1 scope |
+| --- | --- |
+| Customer portal | Conversational claim intake, damage photograph uploads, clarification requests, and claim and restoration status for the claimant's own cases. |
+| Operations dashboard | Agent execution status, elapsed time and outcomes, evidence review, human dispatch approval, contractor job status, SLA milestones, and ordered audit history. |
+| Knowledge base | Preloaded synthetic documents, PDF/DOCX/TXT/MD uploads, document version and indexing management, and a RAG playground with verifiable source citations. |
+
+A workspace is the tenant boundary represented by `tenant_id` in storage. Resolve workspace membership and role from authenticated server context. Claimants see their own claims. Reviewers see operational data within their workspace. Knowledge managers manage workspace documents and can run playground queries against authorized scopes. Playground queries perform read-only retrieval and generation without modifying claim state.
+
 ## Runtime boundaries
 
 | Component | Responsibility |
@@ -21,9 +31,27 @@ ClaimPilot handles synthetic property claims and simulated restoration operation
 | `storage/` | Versioned SQLite migrations, transactions and repository queries. Chroma policy index adapter. |
 | `tests/`, future `evals/` | Unit, graph, API and crash-path tests. Versioned synthetic scenarios and score runner. |
 
-Phase 0 creates modules used by the health service. Later phases add packages as behavior lands. Run one FastAPI process and one local workflow worker on a single host. API mutations persist inputs and queue work, and the worker serializes graph execution per claim. The worker also scans due SLAs and approval expiry. The future React/TypeScript client uses versioned OpenAPI types, Tailwind and shadcn/ui. [FastAPI settings](https://fastapi.tiangolo.com/advanced/settings/) · [shadcn/ui Vite setup](https://ui.shadcn.com/docs/installation/vite)
+The health service and single-report text extraction are available in the backend. Later phases add packages as behavior lands. Run one FastAPI process and one local workflow worker on a single host. API mutations persist inputs and queue work, and the worker serializes graph execution per claim. The worker also scans due SLAs and approval expiry. The future React/TypeScript client uses versioned OpenAPI types, Tailwind and shadcn/ui. [FastAPI settings](https://fastapi.tiangolo.com/advanced/settings/) · [shadcn/ui Vite setup](https://ui.shadcn.com/docs/installation/vite)
 
-Use LangChain ChatGroq for configurable Pydantic structured outputs and local, allowlisted tool calls. Default to an offline, deterministic fixture-backed implementation of the same contracts. No cloud tracing or model account is needed for development or CI. The optional Groq path sends bounded, redacted synthetic inputs and records model and prompt version. Chroma PersistentClient indexes approved synthetic policy clauses with its local all-MiniLM-L6-v2 embedding function. Cache model weights during setup, version the embedding/index configuration, and verify retrieved IDs against authoritative SQLite clauses. [ChatGroq](https://docs.langchain.com/oss/python/integrations/chat/groq) · [Groq models](https://console.groq.com/docs/models) · [Groq structured outputs](https://console.groq.com/docs/structured-outputs) · [Groq local tool calling](https://console.groq.com/docs/tool-use/local-tool-calling) · [Chroma embeddings](https://docs.trychroma.com/docs/embeddings/embedding-functions)
+### Phase 1 model boundary
+
+`LLMService` owns the ChatGroq integration, strict JSON Schema requests, timeouts, retries, and metadata logging. `GROQ_MODEL` defaults to `openai/gpt-oss-20b`, which Groq lists for strict schema output and local tool calling, with free-plan limits of 30 requests/minute, 1,000 requests/day, 8,000 tokens/minute and 200,000 tokens/day. Exact limits may vary by account. Strict schema extraction and future tool calling use separate requests. `GROQ_VISION_MODEL` is independently configurable and defaults to the documented multimodal `qwen/qwen3.8-27b`. Phase 1 makes text requests. [ChatGroq](https://docs.langchain.com/oss/python/integrations/chat/groq) · [Groq structured outputs](https://console.groq.com/docs/structured-outputs) · [Groq tool support](https://console.groq.com/docs/tool-use/overview) · [Groq free-plan limits](https://console.groq.com/docs/rate-limits) · [Groq vision](https://console.groq.com/docs/vision)
+
+`agents/intake.py` validates a single report and calls the service using the versioned prompt in `prompts/claim_extraction.py`. The report occupies a separate role message as JSON data. Every populated field must match a case-sensitive excerpt in the source. Missing values are null, conflicts retain both excerpts, and the list of missing fields is computed locally. Excerpt validation verifies presence and preserves original wording, while semantic assignment remains a model task. Operational use requires confirmation before promoting candidates to facts.
+
+Offline mode replays the bundled synthetic example through the same validator. Other offline reports return a typed unsupported-input error. Groq failures return a typed error without substituting a fixture. The service defaults to a 12-second HTTP timeout per attempt and one retry. Retry only for transient failures and respect numeric `Retry-After` when within the five-second retry delay budget. Logs contain the model, operation/prompt version, total latency, retries, outcome and token counts when supplied. Raw prompts, provider errors, keys, and reasoning stay out of application logs. LangSmith tracing is disabled for extraction.
+
+### Documents, indexing and source isolation
+
+Use a workspace-scoped document registry as the authoritative record for both seeded and uploaded content. A policy document must bind to exactly one authorized policy version in the same workspace. General knowledge documents use an explicit workspace knowledge scope. Resolve scope server-side and verify the selected policy belongs to the workspace before accepting or indexing its upload. The playground chooses an authorized scope explicitly. Claim policy retrieval always uses the resolved policy version.
+
+Validate file type and size and store uploads under opaque private keys. Parse PDF/DOCX/TXT/MD without executing embedded instructions or macros. Queue indexing automatically after a valid upload and expose pending, indexing, ready, failed and archived states. Use content digests and deterministic chunk IDs for retries. Publish a new revision only after its index is complete. Filter by workspace, scope, and policy version before ranking, then revalidate every hit against the active, authorized SQLite revision. Archiving hides a document from retrieval immediately and schedules index cleanup. Chroma PersistentClient is rebuildable from stored revisions and uses local all-MiniLM-L6-v2 embeddings. [Chroma embeddings](https://docs.trychroma.com/docs/embeddings/embedding-functions)
+
+Citations include document and revision IDs, title, chunk ID, page or section locator, and quoted text. Revalidate them against the retrieved sources before returning answers. Insufficient evidence returns an explicit no-answer result. Uploaded document text is untrusted input to the model. Its content cannot select tools, change permissions, or approve a claim.
+
+### Photograph observations and confirmed facts
+
+Store original uploads privately with authenticated workspace and claim ownership checks, file type and size validation, and restricted access. Create a separate observation record for each model result, with photo ID, model/prompt version, timestamp, visible evidence and uncertainty. A photo may suggest visible damage or an affected area. Cause, incident time, urgency and policy details require independently verified context. The customer portal and operations dashboard label photo observations as unconfirmed. Only an authorized, audited confirmation with appropriate evidence updates the claim fact revision. Conflicting photo and customer evidence stays visible for review.
 
 ## Workflow and routing
 
@@ -65,7 +93,7 @@ Use a TypedDict with JSON primitives and nested Pydantic DTO dumps, validated wh
 
 | Agent | Validated output |
 | --- | --- |
-| Intake | `IntakeExtraction` with candidate field/value pairs, provenance spans, and missing or contradictory fields. Each span identifies a message, start and exclusive end offsets. Required-field detection and merges are recalculated by the service. |
+| Intake | Phase 1 `IntakeExtraction` contains nullable verbatim fields, quoted contradictions and computed missing information. Durable intake will associate verified excerpts with the message ID and source offsets before confirming or merging facts. |
 | Policy | `PolicyEvidenceAssessment` with cited clause IDs and bounded rationale, issue codes for exclusions/conditions, and unresolved questions. Validation removes unsupported evidence and fails the assessment to review when material. |
 | Triage | `DamageSignals` with damage category, hazard enum, active intrusion flag, proposed trades and span references. The rule service derives urgency and approved trade scope. |
 | Reporting | `ReportNarrative` with a brief summary and referenced facts, decisions or milestones. The report service owns the actual record and rendering authorization. |
@@ -84,7 +112,7 @@ All tools take strict typed inputs and return a typed result or a stable error c
 | `get_dispatch` | operation key | Authoritative simulator outcome and status version for reconciliation after a timeout. |
 | `check_sla` | dispatch ID and injected current time | Due unmet milestone IDs and breach timestamps. Writes are handled in an idempotent service transaction. |
 
-Agent outputs use strict Pydantic fields, bounded enums, explicit unknowns and evidence references. Treat all customer text, policy text and vendor content as data in prompts. Verify quoted spans and clause IDs against stored sources. Tools are local, scoped, allowlisted and accept neither arbitrary URLs nor SQL. Provider failures get a bounded retry (two attempts total for transport, 429 and transient 5xx, with jitter within a 30-second node budget). Allow one schema repair within the same budget. Retrieval without verified evidence and failed extraction can produce clarifications or staff review. No fabricated facts or citations. Dispatch retries use the same operation key after lookup. A permanently unknown external outcome requires reconciliation. [Pydantic strict mode](https://docs.pydantic.dev/latest/concepts/strict_mode/)
+Agent outputs use strict Pydantic fields, bounded enums, explicit unknowns and evidence references. Treat all customer text, policy text and vendor content as data in prompts. Verify quoted spans and clause IDs against stored sources. Tools are local, scoped, allowlisted and accept neither arbitrary URLs nor SQL. The workflow will apply a node-level time budget around the Phase 1 provider call. Invalid structured output becomes a typed failure that the workflow can route to clarification or review. Retrieval without verified evidence and failed extraction can produce clarifications or staff review. No fabricated facts or citations. Dispatch retries use the same operation key after lookup. A permanently unknown external outcome requires reconciliation. [Pydantic strict mode](https://docs.pydantic.dev/latest/concepts/strict_mode/)
 
 ## Persistence design
 
@@ -98,7 +126,12 @@ IDs are server-generated UUID text unless otherwise stated. UTC times are RFC 33
 | `claim_messages` | `id PK, claim_id FK, actor_id, role, text, created_at`. Index claim/time/id. |
 | `claim_facts` | `claim_id FK, revision, facts_json, provenance_json, created_at`. PK claim/revision. Provenance pairs values with message IDs and validated spans or reviewer decision evidence. |
 | `policy_versions` | `id PK, tenant_id, policy_ref, property_ref, effective_from, effective_until, content_digest`. Unique tenant/policy/effective_from. Effective intervals include the start and exclude the end. The service rejects overlaps. |
-| `policy_clauses` | `id PK, policy_version_id FK, section, text, digest`. Unique version/section. |
+| `policy_clauses` | `id PK, policy_version_id FK, document_chunk_id FK, section, text, digest`. Index version/section. |
+| `knowledge_documents` | `id PK, tenant_id, scope, policy_version_id?, title, active_revision_id?, archived_at?, created_at`. Require policy version for policy scope and enforce the same workspace in the write transaction. |
+| `document_revisions` | `id PK, document_id FK, revision, media_type, storage_key, digest, indexing_state, error_code?, created_at`. Unique document/revision. |
+| `document_chunks` | `id PK, revision_id FK, ordinal, locator_json, text, digest`. Unique revision/ordinal. Workspace and policy scope derive from the document in SQLite and are copied to index metadata. |
+| `claim_photos` | `id PK, claim_id FK, tenant_id, storage_key, media_type, size_bytes, digest, uploaded_by, created_at`. The claim and photo share the workspace. |
+| `photo_observations` | `id PK, photo_id FK, model, prompt_version, observations_json, created_at`. An observation remains separate from fact revisions. Audited fact confirmations may reference it as supporting evidence. |
 | `contractors` | `id PK, tenant_id, name, trades_json, areas_json, active, credential_valid_until, insurance_valid_until, availability_json, version`. Index tenant/active. |
 | `review_items` | `id PK, claim_id FK, reason_codes_json, evidence_json, status, created_at, resolved_at?, resolution_json?`. One open item per claim. |
 | `dispatch_proposals` | `id PK, claim_id FK, contractor_id FK, basis_claim_version, fact_revision, snapshot_json, digest, expires_at, status, created_at`. One pending proposal per claim. Immutable snapshot includes scope, policy clearance, vendor version, ETA and completion deadline. |
@@ -118,7 +151,7 @@ Approval creation and dispatch reservation verify the proposed scope, subject, d
 
 ## API contract
 
-Only liveness ships in Phase 0. The following routes are planned under `/api/v1`. Use JSON and Pydantic-generated OpenAPI. Local synthetic users receive development bearer credentials configured outside Git. Roles are claimant, reviewer and simulator. The server derives identity, tenant and permissions. A claim's owner can view its customer projection. Reviewers in the tenant can view operational evidence and audit data. Simulator credentials are scoped to simulator events only.
+The current HTTP surface is the liveness endpoint. Single-report extraction runs as a Python function and command-line example. The following routes are planned under `/api/v1`. Use JSON and Pydantic-generated OpenAPI. Local synthetic users receive development bearer credentials configured outside Git. Roles are claimant, reviewer, knowledge manager and simulator. The server derives identity, tenant and permissions. A claim's owner can view its customer projection. Reviewers in the tenant can view operational evidence and audit data. Simulator credentials are scoped to simulator events only.
 
 | Endpoint | Input | Success |
 | --- | --- | --- |
@@ -133,10 +166,20 @@ Only liveness ships in Phase 0. The following routes are planned under `/api/v1`
 | `POST /simulator/dispatches/{dispatch_id}/events` | `{external_event_id, status, status_version, occurred_at}` | 202 `{event_id}`, simulator only. Server validates status against simulator ledger. |
 | `GET /claims/{id}/audit` | `after_seq?, limit?` | 200 cursor page of ordered audit events, reviewer only |
 | `GET /claims/{id}/report` | `version?` | 200 typed report or 404 while unavailable. The customer view excludes internal-only evidence and actor IDs |
+| `POST /claims/{id}/photos` | Multipart image | 202 photo metadata and queued work |
+| `GET /claims/{id}/photos` | `cursor?, limit?` | 200 scoped photo page with observation and confirmation status |
+| `GET /claims/{id}/photos/{photo_id}/content` | None | 200 authorized image bytes |
+| `GET /claims/{id}/runs` | `cursor?, limit?` | 200 reviewer-only execution metadata |
+| `POST /knowledge/documents` | Multipart file, title, scope, policy version when required | 202 document and pending revision, knowledge manager only |
+| `GET /knowledge/documents` | `scope?, policy_version_id?, indexing_state?, cursor?, limit?` | 200 authorized document metadata page |
+| `GET /knowledge/documents/{id}` | None | 200 authorized document metadata and revisions |
+| `POST /knowledge/documents/{id}/revisions` | Multipart replacement or stored revision ID for reindexing | 202 queued revision work, knowledge manager only |
+| `POST /knowledge/documents/{id}/archive` | Expected active revision ID | 202 archived state, knowledge manager only |
+| `POST /knowledge/playground/query` | `{query, scope, policy_version_id?, limit?}` | 200 answer or no-answer status with verified citations |
 
 `ClaimView` includes ID, version, status, timestamps, allowed facts, urgency and an optional wait object with kind, item ID, questions or expiry. Reviewer views may include reason codes, clause citations, proposal and SLA milestones. Status values are `queued`, `processing`, `awaiting_information`, `awaiting_review`, `awaiting_approval`, `tracking`, `completed`, `closed_without_dispatch`. Simulator transitions go from `accepted` through `acknowledged`, `arrived`, `completed` or a permitted failure/cancellation. Monotonic versions and unique external event IDs prevent replay or regression. Report fields are schema version, claim ID, fact revision, facts/provenance, policy status/citations, urgency/rule decisions, human approvals/reviews, dispatch timeline, SLA outcomes and closure reason with an audit cutoff.
 
-Use required `Idempotency-Key` (1–128 characters) on every POST. Same actor/route/key plus canonical body digest returns the original acknowledgement. Different body or stale `expected_version` returns 409. Use 401 for missing credentials, 403 for insufficient role on permitted resources and 404 for out-of-scope resources. Errors use `{code, message, request_id, field_errors?}`. Malformed or invalid data returns 422. Limit request bodies to 64 KiB, messages to 4,000 characters and list pages to 100 items. Ordering uses stable cursors and IDs. A 202 means input committed and work queued.
+Use required `Idempotency-Key` (1–128 characters) on every POST. Same actor/route/key plus canonical request digest returns the original acknowledgement. Different body or stale `expected_version` returns 409. Use 401 for missing credentials, 403 for insufficient role on permitted resources and 404 for out-of-scope resources. Errors use `{code, message, request_id, field_errors?}`. Malformed or invalid data returns 422. Limit JSON bodies to 64 KiB, messages to 4,000 characters and list pages to 100 items. Multipart endpoints enforce separate streamed byte limits and include a file digest in request idempotency. Ordering uses stable cursors and IDs. A 202 means input committed and work queued.
 
 ## Audit and observability
 

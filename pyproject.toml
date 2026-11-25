@@ -16,10 +16,12 @@ dev = [
     "pytest>=8.3,<10",
 ]
 agents = [
+    "groq>=1,<2",
     "langchain>=1,<2",
     "langchain-groq>=1,<2",
     "langgraph>=1,<2",
     "langgraph-checkpoint-sqlite>=3,<4",
+    "langsmith>=0.16,<1",
     "chromadb>=1,<2",
 ]
 
