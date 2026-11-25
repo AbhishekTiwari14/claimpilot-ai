@@ -12,6 +12,7 @@ from claimpilot.api.intake import router
 from claimpilot.api.contractors import router as contractors_router
 from claimpilot.api.knowledge import router as knowledge_router
 from claimpilot.api.photos import router as photos_router
+from claimpilot.api.portal import router as portal_router
 from claimpilot.api.workflows import router as workflows_router
 from claimpilot.config import Settings
 from claimpilot.services.knowledge_index import MODEL, Embedding, KnowledgeIndex
@@ -56,6 +57,7 @@ def create_app(
     app.include_router(knowledge_router)
     app.include_router(contractors_router)
     app.include_router(workflows_router)
+    app.include_router(portal_router)
 
     @app.exception_handler(IntakeError)
     async def intake_error(_: Request, error: IntakeError) -> JSONResponse:

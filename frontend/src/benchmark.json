@@ -1,0 +1,53 @@
+{
+  "captured_on": "2026-11-25",
+  "results": [
+    {
+      "metric": "Backend regression tests",
+      "mode": "Deterministic tests",
+      "passed": 134,
+      "total": 134
+    },
+    {
+      "metric": "Structured extraction",
+      "mode": "Offline fixtures",
+      "passed": 3,
+      "total": 3
+    },
+    {
+      "metric": "Retrieval Hit@5",
+      "mode": "Offline fixtures",
+      "passed": 5,
+      "total": 5
+    },
+    {
+      "metric": "Named-clause citation validity",
+      "mode": "Offline fixtures",
+      "passed": 4,
+      "total": 4
+    },
+    {
+      "metric": "Abstention and scope",
+      "mode": "Offline fixtures",
+      "passed": 3,
+      "total": 3
+    },
+    {
+      "metric": "Valid tool executions",
+      "mode": "Offline fixtures",
+      "passed": 13,
+      "total": 13
+    },
+    {
+      "metric": "Contractor eligibility",
+      "mode": "Offline fixtures",
+      "passed": 2,
+      "total": 2
+    },
+    {
+      "metric": "Correct escalation",
+      "mode": "Offline fixtures",
+      "passed": 3,
+      "total": 3
+    }
+  ]
+}
