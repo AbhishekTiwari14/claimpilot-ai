@@ -31,7 +31,7 @@ A workspace is the tenant boundary represented by `tenant_id` in storage. Resolv
 | `storage/` | Versioned SQLite migrations, transactions and repository queries. Chroma policy index adapter. |
 | `tests/`, future `evals/` | Unit, graph, API and crash-path tests. Versioned synthetic scenarios and score runner. |
 
-The health service and single-report text extraction are available in the backend. Later phases add packages as behavior lands. Run one FastAPI process and one local workflow worker on a single host. API mutations persist inputs and queue work, and the worker serializes graph execution per claim. The worker also scans due SLAs and approval expiry. The future React/TypeScript client uses versioned OpenAPI types, Tailwind and shadcn/ui. [FastAPI settings](https://fastapi.tiangolo.com/advanced/settings/) · [shadcn/ui Vite setup](https://ui.shadcn.com/docs/installation/vite)
+The backend serves health and conversational intake. Phase 2 processes turns synchronously and persists each one before contacting the model. The planned workflow worker will serialize downstream graph execution per claim and scan due SLAs and approval expiry. The future React/TypeScript client uses versioned OpenAPI types, Tailwind and shadcn/ui. [FastAPI settings](https://fastapi.tiangolo.com/advanced/settings/) · [shadcn/ui Vite setup](https://ui.shadcn.com/docs/installation/vite)
 
 ### Phase 1 model boundary
 
@@ -39,7 +39,19 @@ The health service and single-report text extraction are available in the backen
 
 `agents/intake.py` validates a single report and calls the service using the versioned prompt in `prompts/claim_extraction.py`. The report occupies a separate role message as JSON data. Every populated field must match a case-sensitive excerpt in the source. Missing values are null, conflicts retain both excerpts, and the list of missing fields is computed locally. Excerpt validation verifies presence and preserves original wording, while semantic assignment remains a model task. Operational use requires confirmation before promoting candidates to facts.
 
-Offline mode replays the bundled synthetic example through the same validator. Other offline reports return a typed unsupported-input error. Groq failures return a typed error without substituting a fixture. The service defaults to a 12-second HTTP timeout per attempt and one retry. Retry only for transient failures and respect numeric `Retry-After` when within the five-second retry delay budget. Logs contain the model, operation/prompt version, total latency, retries, outcome and token counts when supplied. Raw prompts, provider errors, keys, and reasoning stay out of application logs. LangSmith tracing is disabled for extraction.
+Offline mode replays the bundled single-report and multi-turn synthetic fixtures through the same validator. Unrecognized offline reports return a typed unsupported-input error. Groq failures return a typed error without substituting a fixture. The service defaults to a 12-second HTTP timeout per attempt and one retry. Retry only for transient failures and respect numeric `Retry-After` when within the five-second retry delay budget. Logs contain the model, operation/prompt version, total latency, retries, outcome and token counts when supplied. Raw prompts, provider errors, keys, and reasoning stay out of application logs. LangSmith tracing is disabled for extraction.
+
+### Phase 2 conversational intake
+
+A conversation and its claim get separate UUIDs. FastAPI authenticates local synthetic claimant tokens from configuration and resolves the workspace and claimant on the server. SQLite scopes reads and writes by both identities. The history returns message UUIDs, roles, timestamps and a pagination sequence. A file-backed SQLite database uses foreign keys, rollback journaling, a schema version and short write transactions. [SQLite transactions](https://docs.python.org/3.11/library/sqlite3.html)
+
+The intake agent sends the latest report and the field it last asked about to the existing extraction service. Earlier evidence stays in SQLite. The rules merge verbatim candidates with message provenance, preserve equal and unrelated answers, surface conflicting values and accept explicit corrections or a direct clarification. The next question is selected from unresolved fields. It can cite the competing answers or previously reported damage areas. The suspected cause is optional and keeps the customer's words of uncertainty.
+
+The required fields are damage type, affected areas, property location, incident time, policy ID and current hazards, including an explicit denial when applicable. Intake collects reported details. Catalog verification, date normalization and downstream urgency classification occur later. The five intake states are `collecting_information`, `awaiting_clarification`, `awaiting_customer_confirmation`, `intake_completed` and `human_assistance_required`. A conservative screen checks explicit immediate danger before any model call and returns a safety-first reply with the human-assistance state. Three consecutive unresolved turns without progress also route to human assistance. An explicit confirmation POST for the current version promotes the snapshot from candidate evidence to customer-confirmed evidence. It confirms what the customer reported, including the uncertainty of a suspected cause.
+
+A write transaction saves the input message and idempotency record before extraction. A second write transaction saves the assistant reply, next state and replay response together. Versions reject stale writes. A repeat with the same key and payload replays the stored response or resumes pending work after failure or restart. Concurrent identical requests may both perform extraction while pending. They can commit only one reply and state change. A failed turn remains in history and can be retried or explicitly replaced. A report that triggers the immediate safety screen can supersede pending routine work. Terminal intake states stop routine writes. Human-assistance routing records the status and reason without contacting an outside service.
+
+Phase 2 uses `claims` with a versioned intake snapshot and pending message metadata, `claim_messages` with ordered history, and `idempotency_requests` scoped by claimant, workspace and route. The following workflow and persistence sections define the downstream design.
 
 ### Documents, indexing and source isolation
 
@@ -151,15 +163,17 @@ Approval creation and dispatch reservation verify the proposed scope, subject, d
 
 ## API contract
 
-The current HTTP surface is the liveness endpoint. Single-report extraction runs as a Python function and command-line example. The following routes are planned under `/api/v1`. Use JSON and Pydantic-generated OpenAPI. Local synthetic users receive development bearer credentials configured outside Git. Roles are claimant, reviewer, knowledge manager and simulator. The server derives identity, tenant and permissions. A claim's owner can view its customer projection. Reviewers in the tenant can view operational evidence and audit data. Simulator credentials are scoped to simulator events only.
+The current API serves liveness and the Phase 2 intake endpoints. Future workflow, knowledge and photo routes are planned under `/api/v1`. Use JSON and Pydantic-generated OpenAPI. Local synthetic users receive development bearer credentials configured outside Git. Roles are claimant, reviewer, knowledge manager and simulator. The server derives identity, tenant and permissions. A claim's owner can view its customer projection. Reviewers in the tenant can view operational evidence and audit data. Simulator credentials are scoped to simulator events only.
 
 | Endpoint | Input | Success |
 | --- | --- | --- |
 | `GET /health` | None | 200 `{ "status": "ok" }`, process liveness |
-| `POST /claims` | `{message}` | 202 `ClaimView`, Location claim URL |
+| `POST /conversations` | No body | 201 `IntakeTurn` with claim and initial reply, plus conversation Location header |
+| `POST /conversations/{id}/messages` | `{message, expected_version, replace_failed_message?}` | 200 `IntakeTurn` with updated claim and reply |
+| `GET /conversations/{id}` | `after?, limit?` | 200 paged conversation history |
+| `POST /claims/{id}/confirm` | `{confirmed: true, expected_version}` | 200 `IntakeTurn` for the confirmed claim |
 | `GET /claims` | `status?, cursor?, limit?` | 200 cursor page of actor-scoped claim summaries |
-| `GET /claims/{id}` | None | 200 `ClaimView` including current wait details allowed for actor |
-| `POST /claims/{id}/messages` | `{message, expected_version}` during information wait | 202 `ClaimView` |
+| `GET /claims/{id}` | None | 200 `ClaimView` with intake status, candidate or confirmed evidence, unresolved fields and summary when ready |
 | `GET /review-queue` | `kind?, cursor?, limit?` | 200 cursor page of open review items and proposals, reviewer only |
 | `POST /claims/{id}/reviews/{review_id}/decision` | `{action, reason, expected_version, resolution?}`. Actions `request_information`, `resolve_and_retry`, `retry_match`, `close`. Resolution may supply validated evidence-backed facts or acknowledgements. | 202 `ClaimView`, reviewer only |
 | `POST /claims/{id}/proposals/{proposal_id}/decision` | `{outcome, reason, proposal_digest, expected_version}` | 202 `ClaimView`, reviewer only |

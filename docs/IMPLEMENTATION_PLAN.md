@@ -16,7 +16,7 @@ Use uv with CPython 3.11. [uv installation](https://docs.astral.sh/uv/getting-st
 ```powershell
 uv sync --locked --group agents
 uv run --locked --group agents pytest -q
-uv run --locked uvicorn claimpilot.main:app --host 127.0.0.1 --port 8000
+uv run --locked --group agents uvicorn claimpilot.main:app --host 127.0.0.1 --port 8000
 ```
 
 In a second terminal, run `Invoke-RestMethod http://127.0.0.1:8000/health` or `curl http://127.0.0.1:8000/health`. Use `uv sync --locked` for API and test dependencies only. The agents group installs the selected graph, Groq and retrieval libraries. The bundled extraction example is available in Phase 1. Embedding downloads begin with the knowledge base. [uv project workflow](https://docs.astral.sh/uv/guides/projects/) · [FastAPI testing](https://fastapi.tiangolo.com/tutorial/testing/)
@@ -34,19 +34,21 @@ uv run --locked python -m examples.extract_claim
 uv run --locked --group agents python -m examples.extract_claim --provider groq
 ```
 
-The first command processes the bundled synthetic report through the offline fixture. Other reports explicitly fail in offline mode. For the second command, set `GROQ_API_KEY` in your environment or local `.env`. The example logs model metadata and prints the synthetic result. Configure the text model with `GROQ_MODEL`, the future vision model with `GROQ_VISION_MODEL`, and retry policy with `CLAIMPILOT_LLM_TIMEOUT_SECONDS` and `CLAIMPILOT_LLM_MAX_RETRIES`.
+The first command processes the bundled synthetic report through the offline fixture. The conversational fixtures in Phase 2 expand the supported offline reports. Unrecognized inputs explicitly fail in offline mode. For the second command, set `GROQ_API_KEY` in your environment or local `.env`. The example logs model metadata and prints the synthetic result. Configure the text model with `GROQ_MODEL`, the future vision model with `GROQ_VISION_MODEL`, and retry policy with `CLAIMPILOT_LLM_TIMEOUT_SECONDS` and `CLAIMPILOT_LLM_MAX_RETRIES`.
 
 ## Phase 2 — Claim intake and durable execution
 
-Create domain migrations, local authenticated actors, claim/message API, workflow event queue, audit projection and versioned LangGraph intake nodes. Integrate the Phase 1 extraction service and expand deterministic synthetic fixtures for multi-turn cases. Validate and merge evidence-backed facts, ask missing-field questions, and persist/resume with a stable thread ID.
+Add the SQLite intake store, locally authenticated claimants, conversation and confirmation APIs, and deterministic intake transitions. Reuse Phase 1 extraction with conversational context and expand synthetic offline fixtures. Preserve source evidence, resolve missing or conflicting fields, and require version-bound explicit confirmation. The downstream workflow queue and LangGraph orchestration begin after Phase 2.
 
 - A synthetic multi-turn claim reaches the complete-intake milestone. Missing, conflicting and fabricated fields remain unresolved until corrected. Duplicate requests return the stored result, ownership checks block cross-tenant reads, and concurrent versioned submissions yield a conflict.
-- Process restart during a clarification wait or across either checkpoint/transaction boundary preserves progress, and replay produces no duplicate fact revisions or audit events.
-- Malformed model output and provider timeouts route to a bounded clarification or review. Offline tests run with networking disabled after dependencies are installed.
+- Restart during collection, clarification or a pending turn preserves SQLite state and history. Replay produces one accepted message and one committed reply per turn. Only explicit confirmation completes intake.
+- Model failures preserve the pending message and the last committed claim. The customer can retry the original key or explicitly replace a failed turn. Immediate safety signals route to human assistance before extraction. Offline tests require no provider network access. Verify a complete synthetic Groq intake when credentials are available.
+
+See [Phase 2 CLI and API instructions](INTAKE_API.md).
 
 ## Phase 3 — Knowledge base, policy evidence and urgency
 
-Add preloaded synthetic documents, authorized PDF/DOCX/TXT/MD ingestion, document version and archive management, a rebuildable Chroma index with automatic indexing, and a read-only RAG playground API. Integrate scoped policy evidence, citation verification, triage rules, reviewer resolution and alerts. Test model tool selection under an allowlist and a budget.
+Introduce the downstream workflow and audit boundaries when integrating the first post-intake transition. Add preloaded synthetic documents, authorized PDF/DOCX/TXT/MD ingestion, document version and archive management, a rebuildable Chroma index with automatic indexing, and a read-only RAG playground API. Integrate scoped policy evidence, citation verification, triage rules, reviewer resolution and alerts. Test model tool selection under an allowlist and a budget.
 
 - Uploads bind to an authorized workspace and policy version or to explicit general knowledge scope. Automatic indexing is observable and retryable. Archive, reindex and replacement cannot expose stale revisions or cross-workspace content.
 - Playground answers cite exact document revisions and locators or return an explicit no-answer result for insufficient evidence.
