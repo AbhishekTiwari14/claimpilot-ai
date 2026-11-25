@@ -213,7 +213,9 @@ def run_recommendation(
             proposal.uncertainties.append("invalid_or_reused_call_id")
             break
         seen_ids.update(ids)
-        messages.append(AIMessage(content="", tool_calls=message.tool_calls, invalid_tool_calls=message.invalid_tool_calls))
+        raw_arguments = {entry["id"]: entry["function"].get("arguments")
+                         for entry in message.additional_kwargs.get("tool_calls", [])}
+        assistant_calls, results = [], []
         for call, malformed in calls:
             if len(trace.tools) >= settings.claimpilot_agent_max_tool_calls:
                 proposal.uncertainties.append("tool_budget_exhausted")
@@ -224,6 +226,7 @@ def run_recommendation(
             public_name = name if tool else "unknown_tool"
             args = {}
             error = None
+            argument_issue = None
             result = None
             attempts = 0
             tool_start = monotonic()
@@ -231,12 +234,22 @@ def run_recommendation(
                 error = "tool_loop_stopped"
             elif tool is None:
                 error = "unknown_tool"
-            elif malformed:
-                error = "invalid_arguments"
             else:
                 try:
-                    args = tool.args_schema.model_validate(call["args"]).model_dump()
-                except ValidationError:
+                    values = json.loads(raw_arguments[call["id"]]) if call["id"] in raw_arguments else call["args"]
+                except (ValueError, TypeError):
+                    argument_issue = "malformed_json"
+                else:
+                    if not isinstance(values, dict):
+                        argument_issue = "malformed_json" if malformed and call["id"] not in raw_arguments else "expected_object"
+                    else:
+                        try:
+                            args = tool.args_schema.model_validate(values).model_dump()
+                        except ValidationError as exc:
+                            argument_issue = ("unexpected_fields" if any(
+                                item["type"] == "extra_forbidden" for item in exc.errors(include_input=False)
+                            ) else "schema_mismatch")
+                if argument_issue:
                     error = "invalid_arguments"
             if not error:
                 signature = public_name, json.dumps(args, sort_keys=True)
@@ -263,6 +276,11 @@ def run_recommendation(
             else:
                 error = error or "tool_error"
                 body = {"error": error}
+                if argument_issue:
+                    fields = ", ".join(tool.args_schema.model_fields)
+                    guidance = (f"Send a JSON object with these allowed fields: {fields}." if fields
+                                else "This tool takes no arguments. Send exactly {}.")
+                    body.update(argument_issue=argument_issue, guidance=guidance)
                 invalid += error in ("unknown_tool", "invalid_arguments", "repeated_tool_call", "not_discovered",
                                      "tool_not_offered")
                 if error not in proposal.uncertainties:
@@ -274,11 +292,15 @@ def run_recommendation(
                 result=body, duration_ms=round((monotonic() - tool_start) * 1000, 1),
                 attempts=attempts, success=error is None,
             ))
-            messages.append(ToolMessage(content=json.dumps(body, separators=(",", ":")),
-                                        tool_call_id=call["id"], name=public_name))
+            # Pair the original call ID with a safe JSON replay rather than forwarding rejected inputs.
+            assistant_calls.append({"id": call["id"], "name": public_name,
+                                    "args": {"invalid_arguments": True} if argument_issue or not tool else args})
+            results.append(ToolMessage(content=json.dumps(body, separators=(",", ":")),
+                                       tool_call_id=call["id"], name=public_name))
         # A provider request may only follow a fully paired assistant tool message.
-        if trace.tools[-len(ids):] and {step.call_id for step in trace.tools[-len(ids):]} != set(ids):
+        if len(results) != len(ids):
             break
+        messages.extend([AIMessage(content="", tool_calls=assistant_calls), *results])
     else:
         if draft is None:
             proposal.uncertainties.append("iteration_limit")

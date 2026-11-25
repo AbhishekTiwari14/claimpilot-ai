@@ -33,7 +33,7 @@ class ContractorTools:
             ("check_availability", CandidateArgs, "Check current capacity of a discovered ID."),
             ("get_estimated_arrival", CandidateArgs, "Read arrival minutes for a discovered ID."),
             ("get_contractor_performance", CandidateArgs, "Read rating, history and simulated cost."),
-            ("get_dispatch_requirements", NoArgs, "Read verified SLA and approval requirements."),
+            ("get_dispatch_requirements", NoArgs, "Read verified SLA and approval requirements. Takes no arguments. Send {}."),
             ("propose_dispatch", CandidateArgs, "Draft a recommendation after all checks. No dispatch."),
         )
         return [

@@ -50,7 +50,7 @@ $conversation = "$base/conversations/$($turn.claim.conversation_id)"
 $claim = "$base/claims/$($turn.claim.claim_id)"
 $messages = @(
     'There is water damage in the kitchen.',
-    'The damaged property is 12 Example Lane.',
+    'The damaged property is 12 Example Lane, ZIP 98101.',
     'I noticed it yesterday morning.',
     'My policy ID is SYN-123.',
     'There are no ongoing hazards. I think the dishwasher leaked.'

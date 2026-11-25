@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from claimpilot.schemas.conversation import ClaimState, Evidence
-from claimpilot.schemas.intake import CLAIM_FIELDS, ClaimField, IntakeExtraction
+from claimpilot.schemas.intake import CLAIM_FIELDS, ClaimField, IntakeExtraction, service_zip
 
 WELCOME = "Tell me what happened and which parts of your property were damaged."
 SAFETY_REPLY = (
@@ -26,7 +26,7 @@ FIELD_LABELS: dict[ClaimField, str] = {
 QUESTIONS: dict[ClaimField, str] = {
     "damage_type": "What kind of damage did you notice?",
     "affected_areas": "Which rooms or parts of the property were affected?",
-    "property_location": "What is the address or location of the damaged property?",
+    "property_location": "What is the five-digit ZIP code for the damaged property's location? You can include the street address.",
     "incident_time": "When did you first notice the damage?",
     "policy_id": "What is your insurance policy ID?",
     "ongoing_hazards": "Are there any ongoing hazards or unsafe conditions at the property?",
@@ -117,6 +117,11 @@ def apply_turn(
     explicit_correction = bool(CORRECTION_MARKER.match(report))
     for field in CLAIM_FIELDS:
         value = getattr(extraction, field)
+        if field == "property_location" and service_zip(value) is None:
+            prior = state.facts.get(field)
+            if prior and (service_zip(prior.value) is None or (explicit_correction and value is not None)):
+                state.facts.pop(field)
+            continue
         if not _answer_present(value):
             continue
         evidence = Evidence(value=value, message_id=message_id)

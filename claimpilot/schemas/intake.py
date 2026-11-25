@@ -14,6 +14,17 @@ ClaimField = Literal[
 ]
 CLAIM_FIELDS = get_args(ClaimField)
 MAX_REPORT_LENGTH = 4_000
+ZIP = re.compile(r"(?<![\w-])([0-9]{5})(?:-[0-9]{4})?(?![\w-])")
+LEADING_HOUSE_NUMBER = re.compile(r"^\s*[0-9]{5}\s+(?!(?:or|and)\b)\w", re.I)
+
+
+def service_zip(location: str | list[str] | None) -> str | None:
+    if not isinstance(location, str):
+        return None
+    house_number = LEADING_HOUSE_NUMBER.match(location)
+    matches = {match[1] for match in ZIP.finditer(location)
+               if not house_number or match.start() >= house_number.end()}
+    return next(iter(matches)) if len(matches) == 1 else None
 
 
 def validate_excerpt(value: str) -> str:

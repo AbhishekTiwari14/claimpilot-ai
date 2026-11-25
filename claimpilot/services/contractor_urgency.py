@@ -1,16 +1,11 @@
 import re
 
 from claimpilot.schemas.contractors import Trade, UrgencyAssessment
+from claimpilot.schemas.intake import service_zip as service_zip
 from claimpilot.services.intake import immediate_safety_concern
 
-ZIP = re.compile(r"(?<![\w-])([0-9]{5})(?:-[0-9]{4})?(?![\w-])")
 ACTIVE = re.compile(r"\b(?:still (?:leaking|pooling|flooding)|active (?:leak|water intrusion)|ongoing flooding|water is rising|burst pipe)\b", re.I)
 NEGATED = re.compile(r"\b(?:no|not|without|stopped|no longer)\b", re.I)
-
-
-def service_zip(location: str) -> str | None:
-    matches = set(ZIP.findall(location))
-    return next(iter(matches)) if len(matches) == 1 else None
 
 
 def classify_urgency(facts: dict, photos: list, *, intake_safety: bool = False) -> UrgencyAssessment:

@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from claimpilot.agents.intake_fixtures import ACTIVE_WATER, CONTRACTOR_LOCATIONS, DEMO_TURNS, HAZARD
+from claimpilot.agents.intake_fixtures import ACTIVE_WATER, CONTRACTOR_LOCATIONS, DEMO_TURNS, HAZARD, MISSING_ZIP
 from claimpilot.config import ClaimantCredential, OperatorCredential, Settings
 from claimpilot.main import create_app
 
@@ -52,6 +52,8 @@ def create_claim(client, case):
     messages = list(DEMO_TURNS)
     if case.get("zip"):
         messages[1] = CONTRACTOR_LOCATIONS[case["zip"]]
+    elif name == "missing-zip":
+        messages[1] = MISSING_ZIP
     if case.get("active_water"):
         messages[-1] = ACTIVE_WATER
     if case.get("emergency"):
@@ -62,7 +64,7 @@ def create_claim(client, case):
             headers={**CUSTOMER, "Idempotency-Key": f"{name}-message-{index}"},
             json={"message": text, "expected_version": state["version"]},
         ))["claim"]
-    if not case.get("emergency"):
+    if not case.get("emergency") and name != "missing-zip":
         state = checked(client.post(f"/api/v1/claims/{state['claim_id']}/confirm", headers={
             **CUSTOMER, "Idempotency-Key": f"{name}-confirm",
         }, json={"expected_version": state["version"], "confirmed": True}))["claim"]

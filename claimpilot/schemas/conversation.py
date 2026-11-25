@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, computed_field, field_validator
 
-from claimpilot.schemas.intake import ClaimField, MAX_REPORT_LENGTH
+from claimpilot.schemas.intake import ClaimField, MAX_REPORT_LENGTH, service_zip
 from claimpilot.schemas.photos import PhotoFollowUp
 
 IntakeStatus = Literal[
@@ -68,12 +68,13 @@ class ClaimState(BaseModel):
     @computed_field
     @property
     def missing_fields(self) -> list[ClaimField]:
-        return [field for field in REQUIRED_FIELDS if field not in self.facts]
+        return [field for field in REQUIRED_FIELDS if field not in self.facts
+                or (field == "property_location" and service_zip(self.facts[field].value) is None)]
 
     @computed_field
     @property
     def summary(self) -> dict[ClaimField, str | list[str]] | None:
-        if self.status in ("awaiting_customer_confirmation", "intake_completed"):
+        if self.status in ("awaiting_customer_confirmation", "intake_completed") and not self.missing_fields:
             return {field: evidence.value for field, evidence in self.facts.items()}
         return None
 

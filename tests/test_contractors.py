@@ -170,6 +170,37 @@ def test_invalid_calls_are_sanitized_and_stop_after_feedback(api, monkeypatch):
     assert "sensitive-marker" not in json.dumps(trace) and "private_marker" not in json.dumps(trace)
 
 
+@pytest.mark.parametrize(("wire_args", "issue"), [
+    ("{", "malformed_json"), ("[]", "expected_object"),
+    ('{"tenant_id":"sensitive-marker"}', "unexpected_fields"),
+])
+def test_dispatch_requirements_validation_feedback_allows_recovery(api, monkeypatch, wire_args, issue):
+    tool = "get_dispatch_requirements"
+    remaining = adapter([action(tool), *(action(name) for name in TOOLS if name != tool)])
+    first = True
+
+    def turn(messages, tools, **kwargs):
+        nonlocal first
+        if first:
+            first = False
+            return ToolTurn(AIMessage(content="",
+                tool_calls=[{"name": tool, "args": {}, "id": "invalid-wire"}],
+                additional_kwargs={"tool_calls": [{"id": "invalid-wire",
+                    "function": {"name": tool, "arguments": wire_args}}]}), 0)
+        if isinstance(messages[-1], ToolMessage) and messages[-1].tool_call_id == "invalid-wire":
+            assert json.loads(messages[-1].content)["guidance"] == "This tool takes no arguments. Send exactly {}."
+            assert messages[-2].tool_calls[0]["args"] == {"invalid_arguments": True}
+        return remaining(messages, tools, **kwargs)
+
+    monkeypatch.setattr(api.app.state.llm, "tool_turn", turn)
+    run, trace = recommend(api, create_claim(api, scenario("eligible")), "requirements-recovery")
+    invalid, valid = trace["tools"][:2]
+    assert invalid["attempts"] == 0 and invalid["result"]["argument_issue"] == issue
+    assert invalid["arguments"] == {} and "sensitive-marker" not in json.dumps(trace)
+    assert valid["tool"] == tool and valid["success"] and valid["attempts"] == 1
+    assert run["proposal"]["status"] == "awaiting_approval"
+
+
 def test_iteration_and_tool_limits_and_repeats(api, settings, monkeypatch):
     claim = create_claim(api, scenario("eligible"))
     repeated = [action("search_contractors")] * 4
@@ -306,3 +337,6 @@ def test_native_wire_preserves_tool_call_id_and_feedback(settings):
     assert sent[1]["messages"][-1]["tool_call_id"] == "call-real-wire"
     assert sent[1]["messages"][-1]["content"] == '{"candidate_ids":[]}'
     assert "response_format" not in sent[0]
+    parameters = sent[0]["tools"][0]["function"]["parameters"]
+    assert parameters["type"] == "object" and parameters["properties"] == {}
+    assert parameters["additionalProperties"] is False

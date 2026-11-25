@@ -175,6 +175,8 @@ class LLMService:
             if provider == "offline":
                 message = offline_turn(messages)
             else:
+                from langchain_core.utils.function_calling import convert_to_openai_tool
+
                 chat = self._get_chat_model(vision=False)
                 options = {
                     "parallel_tool_calls": False, "tool_choice": tool_choice,
@@ -182,7 +184,12 @@ class LLMService:
                 }
                 if chat.model_name in ("openai/gpt-oss-20b", "openai/gpt-oss-120b"):
                     options["reasoning_effort"] = "low"
-                runnable = chat.bind_tools(tools, **options)
+                definitions = [convert_to_openai_tool(tool) for tool in tools]
+                for tool, definition in zip(tools, definitions, strict=True):
+                    # LangChain drops the closed-object constraint from StructuredTool schemas.
+                    if tool.args_schema.model_config.get("extra") == "forbid" and not tool.args_schema.model_fields:
+                        definition["function"]["parameters"] = tool.args_schema.model_json_schema()
+                runnable = chat.bind_tools(definitions, **options)
                 while True:
                     try:
                         message = self._invoke(runnable, messages)

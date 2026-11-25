@@ -12,6 +12,7 @@ from claimpilot.agents.intake_fixtures import (
 from claimpilot.config import ClaimantCredential, Settings
 from claimpilot.main import create_app
 from claimpilot.schemas.conversation import Claimant, MessageRequest
+from claimpilot.schemas.intake import service_zip
 from claimpilot.services.llm import LLMError, LLMService
 from claimpilot.storage.intake import PendingTurn
 
@@ -114,12 +115,37 @@ def test_follow_ups_focus_on_missing_fields_and_use_context(client):
     assert turn["claim"]["summary"] is None
 
 
+@pytest.mark.parametrize("location", ["kitchen", "12345 Example Lane", "Seattle", "9810", "98101 or 99501"])
+def test_invalid_location_requires_zip_before_confirmation(client, monkeypatch, location):
+    from claimpilot.api import intake
+
+    original = intake.extract_claim
+
+    def extract(message, *args, **kwargs):
+        result = original(message, *args, **kwargs)
+        return (result.model_copy(update={"property_location": location})
+                if message == DEMO_TURNS[0] else result)
+
+    monkeypatch.setattr(intake, "extract_claim", extract)
+    turn = start(client)
+    for message in (DEMO_TURNS[0], *DEMO_TURNS[2:]):
+        turn = advance(client, turn, message)
+    assert turn["claim"]["facts"]["affected_areas"]["value"] == ["kitchen"]
+    assert "property_location" in turn["claim"]["missing_fields"]
+    assert turn["claim"]["status"] == "collecting_information" and turn["claim"]["summary"] is None
+    assert "five-digit ZIP code" in turn["reply"]["text"]
+    assert confirm(client, turn).json()["code"] == "not_ready_to_confirm"
+    turn = advance(client, turn, "98101")
+    assert service_zip(turn["claim"]["summary"]["property_location"]) == "98101"
+    assert confirm(client, turn).json()["claim"]["status"] == "intake_completed"
+
+
 def test_correction_updates_snapshot_and_invalidates_older_confirmation(client):
     original = ready(client)
     revised = advance(client, original, CORRECTION)
     claim = revised["claim"]
     assert claim["status"] == "awaiting_customer_confirmation"
-    assert claim["summary"]["property_location"] == "14 Example Lane"
+    assert claim["summary"]["property_location"] == "14 Example Lane, ZIP 98101"
     assert claim["facts"]["policy_id"] == original["claim"]["facts"]["policy_id"]
     assert confirm(client, original).json()["code"] == "stale_version"
     assert confirm(client, revised).status_code == 200
@@ -132,14 +158,14 @@ def test_conflict_requests_clarification_and_preserves_both_sources(client):
     assert claim["status"] == "awaiting_clarification"
     assert claim["summary"] is None
     assert [e["value"] for e in claim["conflicts"]["property_location"]] == [
-        "12 Example Lane", "16 Example Lane"
+        "12 Example Lane, ZIP 98101", "16 Example Lane, ZIP 98101"
     ]
     assert "12 Example Lane" in conflict["reply"]["text"]
     assert "16 Example Lane" in conflict["reply"]["text"]
     assert confirm(client, conflict).json()["code"] == "not_ready_to_confirm"
     resolved = advance(client, conflict, CLARIFICATION)
     assert resolved["claim"]["status"] == "awaiting_customer_confirmation"
-    assert resolved["claim"]["summary"]["property_location"] == "12 Example Lane"
+    assert resolved["claim"]["summary"]["property_location"] == "12 Example Lane, ZIP 98101"
     assert resolved["claim"]["conflicts"] == {}
 
 
@@ -233,7 +259,7 @@ def test_restart_preserves_claim_and_history(settings):
         assert len(history(api, original)) == 3
         resumed = advance(api, original, DEMO_TURNS[1])
         assert resumed["claim"]["facts"]["damage_type"] == claim["facts"]["damage_type"]
-        assert resumed["claim"]["facts"]["property_location"]["value"] == "12 Example Lane"
+        assert resumed["claim"]["facts"]["property_location"]["value"] == "12 Example Lane, ZIP 98101"
 
 
 def test_duplicate_requests_and_stale_versions_do_not_write_twice(client):

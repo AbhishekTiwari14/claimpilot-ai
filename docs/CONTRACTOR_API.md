@@ -15,6 +15,8 @@ Offline uses a scripted model selector and deterministic lexical fixture vectors
 
 ## Exercise the HTTP API
 
+The `get_dispatch_requirements` tool accepts no arguments. Send the empty JSON object `{}`. The server supplies claim and workspace scope.
+
 Start the server with the workspace operator and claimant settings in the [knowledge guide](KNOWLEDGE_API.md) and [intake guide](INTAKE_API.md). Upload the bundled `data/knowledge/restoration-operations.md` file with `document_type=operations`. The agent treats the exact bundled document hash as the approved synthetic guideline source. Arbitrary uploaded instructions cannot change the approval requirement or SLA rule.
 
 Complete intake with a confirmed service ZIP, such as `98101` for the seeded water restoration options. `99501` exercises the empty search. The offline intake fixture accepts the synthetic sentence “The damaged property is 12 Example Lane, ZIP 98101.”
