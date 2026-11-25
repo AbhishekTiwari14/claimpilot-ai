@@ -72,6 +72,10 @@ export type Contractor = {
 };
 
 const base = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
+export function modelLimitMessage(code: string | null | undefined) {
+  if (code === 'rate_limited' || code === 'model_rate_limited') return 'Groq is receiving too many requests. Wait a moment and retry.';
+  if (code === 'demo_model_limit' || code === 'model_demo_model_limit') return 'The demo has reached its AI usage limit. Try again later.';
+}
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
 }
@@ -88,7 +92,8 @@ export function client(token: string) {
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       throw new ApiError(response.status, data.code || data.error_code || 'request_failed',
-        data.message || (data.error_code ? data.error_code.replaceAll('_', ' ') : `Request failed (${response.status}).`));
+        data.message || modelLimitMessage(data.error_code) ||
+          (data.error_code ? data.error_code.replaceAll('_', ' ') : `Request failed (${response.status}).`));
     }
     if (response.status === 204) return undefined as T;
     return blob ? await response.blob() as T : response.json();

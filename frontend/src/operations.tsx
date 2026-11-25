@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Activity, ArrowDownRight, ArrowRight, BookOpen, CheckCircle2, ClipboardList, Clock3, GitBranch, ListFilter, Radio, Search, ShieldCheck, Truck } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { client, type Assessment, type ClaimDetail, type ClaimRow, type Contractor, type DispatchSummary,
+import { client, modelLimitMessage, type Assessment, type ClaimDetail, type ClaimRow, type Contractor, type DispatchSummary,
   type DocumentRow, type Proposal, type RequirementSource, type Run, type Trace, type Workflow } from './api';
 import { AnswerView, Badge, Empty, Facts, Failure, Loading, Notice, Observations, Panel, label,
   localTime, providerName, shortID, useAction, valueText } from './shared';
@@ -127,7 +127,8 @@ function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: st
   const knowledgePath = `/showcase/rag?${new URLSearchParams({ claim: claimID, scenario: scenario.id, experience: 'full' })}`;
   const next = !detail.policy_version ? ['Bind the policy', 'Choose the matching version to let ClaimPilot check coverage.', '#policy-review', 'Choose policy version'] :
     !workflow ? ['Run claim review', 'ClaimPilot will check the policy and look for eligible contractors.', '#workflow-review', 'Open claim review'] :
-    canContinue ? ['Review required', interventions[workflow.reason ?? ''] || `Resolve ${label(workflow.reason).toLowerCase()} before retrying.`, '#workflow-review', 'Review intervention'] :
+    canContinue ? ['Review required', modelLimitMessage(workflow.reason) ?? interventions[workflow.reason ?? ''] ??
+      `Resolve ${label(workflow.reason).toLowerCase()} before retrying.`, '#workflow-review', 'Review intervention'] :
     workflow.status === 'awaiting_approval' ? ['Review the recommendation', 'Read the evidence and record your decision for this exact version.', '#workflow-review', 'Review proposal'] :
     workflow.status === 'approved' ? ['Ready to dispatch', 'Approval is recorded. Send the request to the simulated contractor.', '#workflow-review', 'Open dispatch controls'] :
     workflow.status === 'awaiting_acknowledgement' ? ['Try a contractor response', 'Accept to complete the demo or reject to see reassignment and fresh approval.', '#dispatch-review', 'Simulate a response'] :
@@ -224,7 +225,7 @@ function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: st
       <Failure error={dispatchQuery.error || run.error} />
       {workflowID && dispatchQuery.isPending && <Loading />}
       {workflow && <div className="stack">
-        <div className="row wrap"><Badge value={workflow.status} />{workflow.reason && <span>{label(workflow.reason)}</span>}
+        <div className="row wrap"><Badge value={workflow.status} />{workflow.reason && <span>{modelLimitMessage(workflow.reason) ?? label(workflow.reason)}</span>}
           {workflow.updated_at && <small>Updated {localTime(workflow.updated_at)}</small>}</div>
         {workflow.execution_error && <Notice kind="error">{label(workflow.execution_error)}. Retry the prior request if it failed.</Notice>}
         {workflow.pause_id && ['requires_intervention', 'awaiting_information'].includes(workflow.status) &&
@@ -281,7 +282,7 @@ function ProposalCard({ run, catalog }: { run: Run; catalog: Contractor[] }) {
     })}
     {p.alternative_contractor_ids.length > 0 && <p>Alternatives: {p.alternative_contractor_ids.map(contractorName).join(', ')}</p>}
     {p.stale && <Notice kind="error">This proposal is stale. It cannot be approved.</Notice>}
-    {p.uncertainties.map(item => <p key={item} className="muted">{label(item)}</p>)}
+    {p.uncertainties.map(item => <p key={item} className="muted">{modelLimitMessage(item) ?? label(item)}</p>)}
     {p.requirements && <p className="muted">{p.requirements.acknowledgement_limit_minutes} min acknowledgement · {label(p.requirements.provenance)}</p>}
     <small>Proposed {localTime(p.created_at)}</small>
   </div>;

@@ -3,7 +3,7 @@ import { Activity, BookOpen, ChevronDown, ChevronRight, ClipboardList, FlaskConi
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { client, type Turn } from './api';
+import { ApiError, client, type Turn } from './api';
 import { experienceFor, Landing, sampleMessages, scenarioFor, type Experience } from './demo';
 import Customer from './customer';
 import { Knowledge, Playground, seedDemoDocuments } from './knowledge';
@@ -46,10 +46,10 @@ function App() {
   const [phase, setPhase] = useState('');
   const [demoError, setDemoError] = useState<unknown>(null);
   const launchKey = useRef<{ target: string; key: string } | null>(null);
-  const demoAvailability = useQuery({ queryKey: ['demo-availability'], enabled: location.pathname === '/' || demoSession,
+  const demoAvailability = useQuery({ queryKey: ['demo-availability'],
     queryFn: async () => {
-      try { return await client('').get<{ enabled: boolean; provider?: 'groq' | 'offline' }>('/demo/status'); }
-      catch { return { enabled: false, provider: undefined }; }
+      try { return await client('').get<{ enabled: boolean; hosted?: boolean; provider?: 'groq' | 'offline' }>('/demo/status'); }
+      catch { return { enabled: false, hosted: false, provider: undefined }; }
     },
   });
   const role = location.pathname.startsWith('/customer') ? 'claimant' : 'operator';
@@ -64,7 +64,8 @@ function App() {
   useEffect(() => {
     document.title = location.pathname === '/' ? 'ClaimPilot AI | Property Claims' : `${heading} | ClaimPilot AI`;
   }, [heading, location.pathname]);
-  const connect = () => setDialog(role);
+  const hosted = demoAvailability.data?.hosted === true;
+  const connect = () => hosted ? navigate('/') : setDialog(role);
   const update = (selected: Role, token: string) => {
     if (demoSession) {
       for (const role of ['operator', 'claimant'] as const) sessionStorage.removeItem(tokenKey(role));
@@ -117,11 +118,14 @@ function App() {
       setRevision(value => value + 1);
       launchKey.current = null;
       navigate(`${experience === 'rag' ? '/showcase/rag' : '/customer'}?${search}`);
-    } catch (error) { setDemoError(error); }
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'demo_session_required') launchKey.current = null;
+      setDemoError(error);
+    }
     finally { setPhase(''); }
   };
   if (location.pathname === '/') return <Landing enabled={demoAvailability.data?.enabled === true}
-    loading={demoAvailability.isPending} phase={phase} error={demoError} launch={(id, experience) => void launch(id, experience)} />;
+    hosted={hosted} loading={demoAvailability.isPending} phase={phase} error={demoError} launch={(id, experience) => void launch(id, experience)} />;
   return <div className="app">
     {menu && <button className="mobile-overlay" aria-label="Close navigation" onClick={() => setMenu(false)} />}
     <aside className={`sidebar ${menu ? 'open' : ''}`}>
@@ -134,7 +138,7 @@ function App() {
           key={to} onClick={() => setMenu(false)}><Icon size={18} />{name}</NavLink>)}
         <Link to="/" className="nav-item" onClick={() => setMenu(false)}><Shield size={18} /> Back to home</Link>
       </nav>
-      <div className="sidebar-footer"><span className="footer-dot" /> <div><strong>Local workspace</strong><small>Simulated contractor dispatch</small></div></div>
+      <div className="sidebar-footer"><span className="footer-dot" /> <div><strong>{hosted ? 'Demo workspace' : 'Local workspace'}</strong><small>Simulated contractor dispatch</small></div></div>
     </aside>
     <div className="workspace">
       <header className="topbar">
@@ -144,11 +148,13 @@ function App() {
         <div className="row wrap">{demoSession && demoAvailability.data?.enabled &&
           <Button variant="ghost" size="sm" disabled={!!phase} onClick={() => void launch(scenarioFor(params.get('scenario')).id, experienceFor(params.get('experience')))}>
             <RotateCcw /> Restart demo</Button>}
-          <button className="session-button" onClick={connect}><span className="session-avatar">{sessions[role] ? (role === 'operator' ? 'OP' : 'CL') : <LogIn size={15} />}</span>
-            <span>{sessions[role] ? (role === 'operator' ? 'Operator session' : 'Claimant session') : 'Connect session'}</span><ChevronDown size={15} /></button></div>
+          {hosted ? !demoSession && <Button onClick={connect}>Start demo</Button> :
+            <button className="session-button" onClick={connect}><span className="session-avatar">{sessions[role] ? (role === 'operator' ? 'OP' : 'CL') : <LogIn size={15} />}</span>
+              <span>{sessions[role] ? (role === 'operator' ? 'Operator session' : 'Claimant session') : 'Connect session'}</span><ChevronDown size={15} /></button>}</div>
       </header>
       <Walkthrough key={revision} enabled={demoSession && params.get('experience') === 'full'}>
       <main className="main-content">
+        {hosted && <Notice>Use synthetic information only. Use sample or fictional documents, photos, and claim details.</Notice>}
         {phase && <Notice>{phase}</Notice>}<Failure error={demoError} />
         <WalkthroughProgress />
         <Routes>
@@ -166,7 +172,7 @@ function App() {
       </main>
       </Walkthrough>
     </div>
-    {dialog && <SessionDialog role={dialog} connected={!!sessions[dialog]} close={() => setDialog(null)} update={update} />}
+    {!hosted && dialog && <SessionDialog role={dialog} connected={!!sessions[dialog]} close={() => setDialog(null)} update={update} />}
   </div>;
 }
 

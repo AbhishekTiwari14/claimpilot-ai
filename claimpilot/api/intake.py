@@ -10,7 +10,7 @@ from claimpilot.schemas.conversation import (
     ClaimView, Claimant, ConfirmationRequest, ConversationHistory, IntakeTurn, MessageRequest,
 )
 from claimpilot.services.intake import apply_turn, immediate_safety_concern
-from claimpilot.services.llm import LLMError
+from claimpilot.services.llm import LLMError, MODEL_LIMIT_MESSAGES
 from claimpilot.services.photo_analysis import photo_follow_ups
 from claimpilot.storage.intake import IntakeError
 from claimpilot.storage.photos import PhotoStore
@@ -79,6 +79,8 @@ def send_message(
     except LLMError as error:
         if replay := store.record_failure(actor, pending, error.code):
             return turn_with_photo_questions(store, actor, replay)
+        if message := MODEL_LIMIT_MESSAGES.get(error.code):
+            raise IntakeError(429, error.code, f"{message} Your message was saved.") from None
         raise IntakeError(
             503, "extraction_unavailable", "Your message was saved. Retry with the original request key."
         ) from None

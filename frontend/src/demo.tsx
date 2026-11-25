@@ -31,8 +31,8 @@ export function sampleMessages(scenario: ReturnType<typeof scenarioFor>) {
   ];
 }
 
-export function Landing({ enabled, loading, phase, error, launch }: {
-  enabled: boolean; loading: boolean; phase: string; error: unknown; launch: (scenario: string, experience?: Experience) => void;
+export function Landing({ enabled, hosted, loading, phase, error, launch }: {
+  enabled: boolean; hosted: boolean; loading: boolean; phase: string; error: unknown; launch: (scenario: string, experience?: Experience) => void;
 }) {
   const [selected, setSelected] = useState<string>(scenarios[0].id);
   return <div className="landing">
@@ -48,6 +48,7 @@ export function Landing({ enabled, loading, phase, error, launch }: {
           <div className="row wrap"><Button size="default" disabled={!enabled || !!phase} onClick={() => launch(selected)}>
             {phase || 'Try Interactive Demo'}<ArrowRight /></Button><small>About 2–3 minutes · Sample information only</small></div>
           {!enabled && !loading && <p className="muted">Interactive demo access is disabled here. Use a portal to sign in manually.</p>}
+          {hosted && <p className="muted">Use synthetic information only. Demo workspaces expire, and AI requests are processed by Groq.</p>}
           <Failure error={error} />
         </div>
         <aside className="landing-preview">

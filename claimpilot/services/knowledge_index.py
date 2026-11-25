@@ -140,6 +140,17 @@ class KnowledgeIndex:
         except Exception:
             logger.warning("knowledge_vector_cleanup_failed document_id=%s", doc_id)
 
+    def purge_workspace(self, tenant: str) -> None:
+        if not (self.settings.claimpilot_kb_chroma / "chroma.sqlite3").is_file():
+            return
+        with self._lock:
+            client = self._chroma()
+        for collection in client.list_collections():
+            if collection.name.startswith(self.prefix):
+                client.get_collection(collection.name, embedding_function=None).delete(
+                    where={"workspace_id": tenant},
+                )
+
     def search(self, tenant: str, request: SearchRequest, *, subject: str = "") -> list[Evidence]:
         document_id = str(request.document_id) if request.document_id else None
         allowed = self.store.scoped_generations(tenant, request, self.config, subject, document_id=document_id)

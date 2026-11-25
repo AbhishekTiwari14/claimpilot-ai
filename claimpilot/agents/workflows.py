@@ -13,6 +13,7 @@ from langsmith import tracing_context
 from claimpilot.agents.contractors import run_recommendation
 from claimpilot.services.contractor_urgency import classify_urgency
 from claimpilot.services.knowledge_answers import assess_claim
+from claimpilot.services.llm import MODEL_LIMIT_MESSAGES
 from claimpilot.storage.intake import IntakeError
 from claimpilot.storage.dispatch import MAX_ATTEMPTS
 
@@ -118,7 +119,10 @@ def build_graph(app, actor):
         proposal = run.proposal
         fields = {"contractor_run_id": str(run.id)}
         if proposal is None or proposal.status != "awaiting_approval":
-            reason = "no_eligible_contractors" if proposal and "no_eligible_contractors" in proposal.uncertainties else "contractor_review_required"
+            uncertainties = proposal.uncertainties if proposal else []
+            reason = next((code for code in MODEL_LIMIT_MESSAGES if f"model_{code}" in uncertainties), None)
+            if reason is None:
+                reason = "no_eligible_contractors" if "no_eligible_contractors" in uncertainties else "contractor_review_required"
             return step("contractor", "requires_intervention", reason, **fields)
         return step("contractor", "awaiting_approval", proposal_id=str(proposal.id), proposal_version=proposal.version,
                     dispatch_citations=[c.chunk_id for c in proposal.requirements.sources], **fields)

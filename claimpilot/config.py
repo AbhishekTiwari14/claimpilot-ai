@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, StringConstraints, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -52,6 +53,18 @@ class Settings(BaseSettings):
     claimpilot_agent_max_tool_calls: int = Field(default=12, ge=1, le=24)
     claimpilot_agent_tool_timeout_seconds: float = Field(default=5, gt=0, le=30)
     claimpilot_agent_deadline_seconds: float = Field(default=100, gt=0, le=300)
+    claimpilot_spa_dir: Path | None = None
+    claimpilot_hosted_demo: bool = False
+    claimpilot_demo_origin: str | None = None
+    claimpilot_demo_ttl_seconds: int = Field(default=3600, ge=1, le=86400)
+    claimpilot_demo_active_workspaces: int = Field(default=12, ge=1, le=50)
+    claimpilot_demo_workspaces_per_hour: int = Field(default=12, ge=1, le=100)
+    claimpilot_demo_workspaces_per_ip_hour: int = Field(default=3, ge=1, le=100)
+    claimpilot_demo_requests_per_minute: int = Field(default=120, ge=1, le=600)
+    claimpilot_demo_mutations_per_workspace: int = Field(default=100, ge=1, le=500)
+    claimpilot_demo_uploads_per_workspace: int = Field(default=16, ge=1, le=100)
+    claimpilot_demo_model_calls_per_workspace: int = Field(default=45, ge=1, le=200)
+    claimpilot_demo_model_calls_per_hour: int = Field(default=300, ge=1, le=2000)
 
     @model_validator(mode="after")
     def distinct_knowledge_credentials(self) -> "Settings":
@@ -61,4 +74,17 @@ class Settings(BaseSettings):
             raise ValueError("Knowledge operator credentials must be distinct from all other credentials")
         if self.claimpilot_kb_chunk_overlap >= self.claimpilot_kb_chunk_size:
             raise ValueError("Knowledge chunk overlap must be smaller than chunk size")
+        if self.claimpilot_hosted_demo:
+            value = self.claimpilot_demo_origin or ""
+            origin = urlsplit(value)
+            if (origin.scheme != "https" or not origin.hostname or origin.username is not None
+                or origin.hostname.endswith(".") or value != f"https://{origin.netloc.lower()}"
+                or any(ch.isspace() for ch in value) or origin.port == 443):
+                raise ValueError("Set CLAIMPILOT_DEMO_ORIGIN to the public HTTPS origin without a trailing slash")
+            if self.claimpilot_llm_provider != "groq" or not (
+                self.groq_api_key and self.groq_api_key.get_secret_value().strip()
+            ):
+                raise ValueError("Hosted demo requires the Groq provider and a server-side API key")
+            if self.claimpilot_claimants or self.claimpilot_kb_operators:
+                raise ValueError("Hosted demo requires a dedicated deployment with no manual credentials")
         return self

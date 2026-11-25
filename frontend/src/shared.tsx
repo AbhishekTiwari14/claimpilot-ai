@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Check, ChevronDown, LoaderCircle } from 'lucide-react';
 import { useRef, type ReactNode } from 'react';
 import type { Analysis, Answer, Fact } from './api';
+import { modelLimitMessage } from './api';
 
 export const label = (value: string | null | undefined) => value
   ? value.replaceAll('_', ' ').replace(/^./, char => char.toUpperCase()) : '—';
@@ -43,7 +44,7 @@ export function Observations({ analyses }: { analyses: Analysis[] }) {
   return analyses.length ? <div className="stack">{analyses.map((analysis, index) => <article className="inset" key={analysis.id}>
     <div className="row spread"><strong>{index === 0 ? 'Latest analysis' : 'Earlier analysis'}</strong><Badge value={analysis.status} /></div>
     <p className="muted">{providerName(analysis.provider)} · {analysis.model}</p>
-    {analysis.error_code && <Notice kind="error">{label(analysis.error_code)}</Notice>}
+    {analysis.error_code && <Notice kind="error">{modelLimitMessage(analysis.error_code) ?? label(analysis.error_code)}</Notice>}
     {analysis.result?.observations.map((obs, i) => <div className="observation" key={obs.image_id}>
       <h3>Photo {i + 1} <span className="muted">· {label(obs.image_quality)}</span></h3>
       <p><strong>Visible observations:</strong> {valueText([...obs.visible.observed_damage_types.map(label), ...obs.visible.visible_indicators])}</p>

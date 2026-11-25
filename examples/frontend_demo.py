@@ -61,7 +61,7 @@ def main():
     parser.add_argument("--provider", choices=["offline", "groq"], default="offline")
     parser.add_argument("--interactive", action="store_true", help="Enable isolated, localhost-only visitor sessions")
     args = parser.parse_args()
-    settings = Settings(claimpilot_llm_provider=args.provider)
+    settings = Settings(claimpilot_llm_provider=args.provider, claimpilot_hosted_demo=False, claimpilot_spa_dir=None)
     if args.interactive:
         directory = Path("data/runtime") / f"interactive-{uuid4().hex}"
         settings.claimpilot_intake_db = directory / "pilot.sqlite3"

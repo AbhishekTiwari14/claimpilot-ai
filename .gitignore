@@ -5,6 +5,7 @@
 /.env
 /.env.*
 !/.env.example
+!/.env.docker.example
 /data/runtime/
 __pycache__/
 *.py[cod]

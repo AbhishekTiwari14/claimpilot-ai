@@ -1,43 +1,103 @@
-# Deployment readiness
+# Deploy ClaimPilot AI
 
-The repository has no Dockerfile, Compose file or container entrypoint. The current interactive launcher is localhost-only. Its status and session endpoints check the request host, peer address and any supplied Origin. Session creation also checks `Sec-Fetch-Site` when supplied. The standard `claimpilot.main:app` entry point serves the API and health check. The separate demo launcher registers visitor session endpoints.
+The Docker image serves React and FastAPI on port 8000 with one non-root Uvicorn worker. React deep links such as `/customer/claims` load the SPA. The API is under `/api/v1` and the container uses `/health` for its health check. The image builds from `frontend/package-lock.json` and `uv.lock`. Vite uses the relative API URL.
 
-## Serve one origin
+## Public demo on one Linux host
 
-Build React from the repository root so Vite can resolve the bundled policy content under `data/knowledge`. Serve `frontend/dist` at the origin root with an `index.html` fallback for React Router deep links. Route `/api/v1/*` to internal Uvicorn unchanged and route `/health` explicitly. API errors should retain their original status and response body. Leave `VITE_API_BASE_URL` unset to use the relative `/api/v1` default. Vite's dev and preview proxies apply locally. Production needs explicit routing at the reverse proxy or equivalent ASGI routing.
+Point your domain at the host. Use a host HTTPS reverse proxy that preserves the public `Host` header and sets trusted forwarded scheme and client IP headers. Keep port 8000 private. From the repository root, run the following commands on a standard Docker bridge network.
 
-## Persistence and configuration
+```sh
+cp .env.docker.example .env.docker
+chmod 600 .env.docker
+${EDITOR:-vi} .env.docker
 
-Mount a writable volume at a dedicated runtime directory. Keep the following paths on that volume.
+docker build -t claimpilot-ai .
+docker volume create claimpilot-runtime
+PROXY_IP=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
+docker run -d --name claimpilot --restart unless-stopped \
+  --env-file .env.docker --env "FORWARDED_ALLOW_IPS=$PROXY_IP" \
+  -p 127.0.0.1:8000:8000 -v claimpilot-runtime:/runtime claimpilot-ai
+```
 
-| Path or setting | Contents |
+In the environment file, set `CLAIMPILOT_DEMO_ORIGIN` to your public HTTPS origin without a trailing slash and enter `GROQ_API_KEY`. Use the proxy address as seen by the container if it differs from the bridge gateway above. Trust only that proxy address or a dedicated proxy subnet. The hosted API requires the configured HTTPS origin and a dedicated deployment with empty manual credential lists. The existing localhost runner stays available via `uv run --locked --group agents python -m examples.frontend_demo --interactive`.
+
+For example, with Caddy already installed on the host, use this Caddyfile. Merge the global server options into the existing global block if there is one. Adjust the proxy body limit if you raise the upload limits. [Caddy server timeouts](https://caddyserver.com/docs/caddyfile/options#timeouts) · [Caddy reverse proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)
+
+```caddyfile
+{
+    servers :443 {
+        timeouts {
+            read_header 10s
+            read_body 30s
+        }
+    }
+}
+
+claims.example.com {
+    request_body {
+        max_size 9MiB
+    }
+    reverse_proxy 127.0.0.1:8000 {
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
+```
+
+```sh
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo caddy reload --config /etc/caddy/Caddyfile
+curl -fsS https://claims.example.com/health
+curl -fsS https://claims.example.com/api/v1/demo/status
+curl -fsS https://claims.example.com/customer/claims -o /dev/null
+docker stats --no-stream claimpilot
+```
+
+Open the site and launch the interactive demo. Follow a sample claim through intake, photo analysis, explicit claim confirmation, policy review, contractor recommendation and human approval before simulated dispatch. Launch from a second tab or browser and verify the new workspace is empty. The first document index downloads the CPU embedding model. The cache is reused on later launches.
+
+## Configuration and limits
+
+| Runtime setting | Default or example |
 | --- | --- |
-| Parent of `CLAIMPILOT_INTAKE_DB` | Domain SQLite database, normalized photo bytes, document sections and metadata, proposal and dispatch history, and sibling `.checkpoints.sqlite3` and `.workflow-lock.sqlite3` files. Keep SQLite journal and sidecar files on the same filesystem. |
-| `CLAIMPILOT_KB_CHROMA` | Chroma projection. It can be rebuilt from the authoritative SQLite document records. Keep fixture and ONNX indexes separate. |
-| `CLAIMPILOT_KB_MODEL_CACHE` | Downloaded and extracted CPU embedding model for live retrieval. Persist or prewarm it so restarts can reuse the cache. |
+| `CLAIMPILOT_HOSTED_DEMO` | Off by default. The Docker example enables it explicitly. |
+| `CLAIMPILOT_DEMO_ORIGIN` | Public HTTPS origin, required in hosted mode. |
+| `CLAIMPILOT_LLM_PROVIDER`, `GROQ_API_KEY` | Hosted mode requires `groq` and a server-side key. |
+| `GROQ_MODEL`, `GROQ_VISION_MODEL` | `openai/gpt-oss-20b`, `qwen/qwen3.8-27b` |
+| `CLAIMPILOT_LLM_TIMEOUT_SECONDS`, `CLAIMPILOT_LLM_MAX_RETRIES` | 12 seconds and 1 retry. Retries count against the model-call budget. |
+| `CLAIMPILOT_DEMO_TTL_SECONDS` | 3600 seconds from creation. |
+| `CLAIMPILOT_DEMO_ACTIVE_WORKSPACES`, `CLAIMPILOT_DEMO_WORKSPACES_PER_HOUR`, `CLAIMPILOT_DEMO_WORKSPACES_PER_IP_HOUR` | 12 active, 12 new per rolling hour across the app, 3 new per rolling hour per client IP. |
+| `CLAIMPILOT_DEMO_REQUESTS_PER_MINUTE`, `CLAIMPILOT_DEMO_MUTATIONS_PER_WORKSPACE` | 120 requests per rolling minute and 100 mutations over the workspace lifetime, shared by both roles. Up to two writes run concurrently across the app. |
+| `CLAIMPILOT_DEMO_UPLOADS_PER_WORKSPACE`, `CLAIMPILOT_KB_MAX_BYTES`, `CLAIMPILOT_PHOTO_MAX_BYTES` | 16 upload attempts per workspace, including sample files and retries. Each document is limited to 5 MiB and each photo to 8 MiB. |
+| `CLAIMPILOT_DEMO_MODEL_CALLS_PER_WORKSPACE`, `CLAIMPILOT_DEMO_MODEL_CALLS_PER_HOUR` | 45 provider attempts per workspace and 300 across the app per rolling hour. |
+| `FORWARDED_ALLOW_IPS` | Trusted proxy IP or CIDR, used by Uvicorn. |
 
-The core defaults are under `data/runtime`. The interactive runner overrides the domain database and Chroma locations with a fresh `data/runtime/interactive-*` directory on each launch. Its in-memory credentials are lost on restart, even if that directory is preserved. Claim photos live in SQLite and indexed document content is stored as sections and chunks. [Backend settings](../claimpilot/config.py) · [Interactive runner](../examples/frontend_demo.py)
+The browser receives short-lived claimant and operator bearer tokens for its workspace. The Groq key remains on the server. Use synthetic information only. Groq processes AI prompts and photos. Session records and rolling counters live in the worker's memory and reset when it restarts. Expired sessions stop authorizing immediately. The worker checks for expired data every 30 seconds and purges it after admitted requests finish. Startup purges hosted workspace data from previous runs.
 
-- **Provider configuration.** `CLAIMPILOT_LLM_PROVIDER` selects `offline` or `groq` for the standard app. The demo runner uses `--provider`. `GROQ_API_KEY` is a server-only secret for live inference. `GROQ_MODEL` and `GROQ_VISION_MODEL` select models. `CLAIMPILOT_LLM_TIMEOUT_SECONDS` and `CLAIMPILOT_LLM_MAX_RETRIES` bound provider calls.
-- **Role credentials.** `CLAIMPILOT_CLAIMANTS` and `CLAIMPILOT_KB_OPERATORS` are separate JSON arrays with private bearer tokens for named sessions. Inject secrets at runtime. Keep `.env`, secret values and runtime files out of the image, build context and browser bundle.
-- **Resource limits.** Backend settings expose upload, photo, chunk, retrieval and tool budget bounds. Match ingress body limits and timeouts to documented endpoint limits. Per-visitor quotas are a separate deployment requirement.
+## Persistent storage
 
-## Capacity
+Use a dedicated volume mounted at `/runtime` and keep one container on that volume. A bind mount must be writable by UID/GID 10001.
 
-The Windows production frontend build measured 915,818 bytes (about 0.9 MB). The local ONNX download archive measured 83,178,821 bytes (about 79 MiB) before extraction. Linux container footprint, peak RSS, throughput and concurrency remain unmeasured. A starting estimate for a low-traffic, single-worker portfolio demo is **2 vCPU, 2 GiB RAM and 5–10 GiB free disk** for images, dependencies, model cache and bounded runtime data. Groq runs text and vision inference remotely. The server handles document and image decoding, local embeddings and indexing. Peak memory and storage depend on concurrent uploads, index size, visitor retention and logs. Verify cold start, indexing and peak workload on the target host before sizing a public deployment.
+| Runtime path | Contents |
+| --- | --- |
+| `/runtime/intake.sqlite3` | Claims, normalized photo bytes, parsed documents and chunks, and dispatch history. Uploaded source files are processed during the request. |
+| `/runtime/intake.checkpoints.sqlite3` and `/runtime/intake.workflow-lock.sqlite3` | LangGraph state and its workflow lock. SQLite sidecar files stay on the same volume. |
+| `/runtime/chroma` | Vector index. SQLite holds the authoritative document records. |
+| `/runtime/embeddings` | Downloaded and extracted CPU embedding model. |
 
-## Public interactive sessions
+The image sets `CLAIMPILOT_INTAKE_DB`, `CLAIMPILOT_KB_CHROMA` and `CLAIMPILOT_KB_MODEL_CACHE` to these volume paths. Restart with the same mount to reuse the cache. Demo cleanup deletes application records and indexed entries. Any external backups follow the host's own retention.
 
-The localhost launcher is unsuitable as an internet-facing session issuer. It uses process-local tokens, has a 25-session lifetime cap per process and lacks expiry and cleanup. A public implementation needs the following controls.
+## Local image smoke test
 
-- Issue short-lived, revocable sessions in a dedicated demo environment. Bind both roles to one synthetic workspace and make session creation idempotent within that visitor's session. Authorize every claim, document, photo and operator action server-side. Use a shared or durable session record if sessions must survive a restart.
-- Enforce a configured HTTPS host and origin, CSRF protection for cookie-authenticated mutations, secure session transport and trusted proxy boundaries. Keep the localhost check on the existing launcher.
-- Add issuance and request rate limits, concurrent-job bounds, per-session upload and data budgets, and provider spending limits. Prefer bundled samples for anonymous traffic. Enable arbitrary uploads and live requests only with explicit cost, abuse and retention controls.
-- Expire credentials and purge tenant data, photo bytes, graph checkpoints and Chroma entries on a schedule. Use a clear synthetic-data notice, minimal logs and tests for cross-session access, replay, expired sessions, cleanup and approval bypass.
+Run the image with default settings to check routing and the health probe over loopback.
 
-## Minimum single-server Docker deployment
+```sh
+docker run --rm -d --name claimpilot-smoke -p 127.0.0.1:8000:8000 claimpilot-ai
+curl -fsS --retry 15 --retry-connrefused http://127.0.0.1:8000/health
+curl -fsS http://127.0.0.1:8000/customer/claims -o /dev/null
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/api/v1/customer/claims
+docker exec claimpilot-smoke id
+docker stats --no-stream claimpilot-smoke
+docker stop claimpilot-smoke
+```
 
-1. Add a locked frontend build stage and a Python 3.11 backend image with the agents dependency group and bundled synthetic data. Add a `.dockerignore` to exclude local secrets, caches, build outputs and runtime data. Run the backend as a non-root user.
-2. Add a reverse proxy to serve the built SPA and terminate TLS. Forward API and health routes to one internal Uvicorn worker. Keep the backend port private. The standard app supports a protected manual-token deployment. Reproducing the offline fixture walkthrough needs the demo runner's fixture configuration in the eventual service entry point.
-3. Mount the runtime volume, inject server secrets, add a health check and restart policy, and plan consistent SQLite backups and restore checks. Document how to rebuild Chroma and warm the ONNX cache. Verify deep links, API requests and state across a container restart.
-4. Publish the walkthrough video or landing page while the public session issuer is pending. Enable public interactive actions after the session and abuse controls above are implemented and exercised.
+The protected API call returns 401 and the container user is 10001. Measure memory again after indexing and completing an interactive session on your public host.

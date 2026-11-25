@@ -6,7 +6,7 @@ from claimpilot.schemas.knowledge import (
     SearchRequest,
 )
 from claimpilot.services.knowledge_index import KnowledgeIndex
-from claimpilot.services.llm import LLMError, LLMService
+from claimpilot.services.llm import LLMError, LLMService, MODEL_LIMIT_MESSAGES
 from claimpilot.storage.intake import IntakeError
 
 
@@ -71,6 +71,8 @@ def grounded_answer(
                 validate=validate, offline_result=lambda: _fixture(request.query, evidence, assessment),
             )
         except LLMError as error:
+            if message := MODEL_LIMIT_MESSAGES.get(error.code):
+                raise IntakeError(429, error.code, message) from None
             if error.code != "invalid_output":
                 raise IntakeError(503, "answer_unavailable", "Grounded answer generation is temporarily unavailable.") from None
             uncertainties.append("The proposed supporting evidence did not pass citation validation.")

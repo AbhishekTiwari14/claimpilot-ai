@@ -3,6 +3,7 @@ import json
 import logging
 import math
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from time import monotonic, sleep
 from typing import TYPE_CHECKING, TypeVar
@@ -18,6 +19,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 Output = TypeVar("Output", bound=BaseModel)
 MAX_RETRY_DELAY = 5.0
+model_attempt_guard: ContextVar[Callable[[], None] | None] = ContextVar("model_attempt_guard", default=None)
+MODEL_LIMIT_MESSAGES = {
+    "rate_limited": "Groq is receiving too many requests. Wait a moment and retry.",
+    "demo_model_limit": "The demo has reached its AI usage limit. Try again later.",
+}
 
 
 class LLMError(RuntimeError):
@@ -109,7 +115,7 @@ class LLMService:
                     messages = [("system", system_prompt), ("human", user_payload)]
                 while True:
                     try:
-                        response = self._invoke(runnable, messages)
+                        response = self._attempt(runnable, messages)
                         break
                     except LLMError as error:
                         delay = retry_delay(error, retries, self._settings.claimpilot_llm_max_retries)
@@ -192,7 +198,7 @@ class LLMService:
                 runnable = chat.bind_tools(definitions, **options)
                 while True:
                     try:
-                        message = self._invoke(runnable, messages)
+                        message = self._attempt(runnable, messages)
                         break
                     except LLMError as error:
                         if error.code == "invalid_tool_output":
@@ -243,6 +249,11 @@ class LLMService:
         else:
             self._chat_model = model
         return model
+
+    def _attempt(self, runnable, messages):
+        if guard := model_attempt_guard.get():
+            guard()
+        return self._invoke(runnable, messages)
 
     @staticmethod
     def _invoke(runnable, messages):

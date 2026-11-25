@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Callable, Literal
@@ -7,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from claimpilot.api.intake import router
 from claimpilot.api.contractors import router as contractors_router
@@ -15,8 +17,10 @@ from claimpilot.api.photos import router as photos_router
 from claimpilot.api.portal import router as portal_router
 from claimpilot.api.workflows import router as workflows_router
 from claimpilot.config import Settings
+from claimpilot.hosted_demo import HostedDemo, HostedDemoMiddleware
 from claimpilot.services.knowledge_index import MODEL, Embedding, KnowledgeIndex
 from claimpilot.services.llm import LLMService
+from claimpilot.spa import SPAFiles
 from claimpilot.storage.intake import IntakeError
 from claimpilot.storage.contractors import ContractorStore
 from claimpilot.storage.knowledge import KnowledgeStore
@@ -41,7 +45,16 @@ def create_app(
     async def lifespan(_: FastAPI):
         store.initialize()
         contractor_store.seed({actor.tenant_id for actor in settings.claimpilot_kb_operators})
-        yield
+        if demo is None:
+            yield
+        else:
+            await run_in_threadpool(demo.purge_previous_sessions)
+            async with asyncio.TaskGroup() as tasks:
+                cleanup = tasks.create_task(demo.cleanup_loop())
+                try:
+                    yield
+                finally:
+                    cleanup.cancel()
 
     app = FastAPI(title="ClaimPilot AI", lifespan=lifespan)
     app.state.settings = settings
@@ -52,6 +65,11 @@ def create_app(
     app.state.knowledge = KnowledgeIndex(
         settings, KnowledgeStore(settings.claimpilot_intake_db), embed=embed, embedding_id=embedding_id,
     )
+    demo = HostedDemo(app.state) if settings.claimpilot_hosted_demo else None
+    if demo is not None:
+        app.state.hosted_demo = demo
+        demo.register(app)
+        app.add_middleware(HostedDemoMiddleware, demo=demo)
     app.include_router(router)
     app.include_router(photos_router)
     app.include_router(knowledge_router)
@@ -78,6 +96,8 @@ def create_app(
     def health() -> HealthResponse:
         return HealthResponse(status="ok")
 
+    if settings.claimpilot_spa_dir is not None:
+        app.mount("/", SPAFiles(directory=settings.claimpilot_spa_dir), name="frontend")
     return app
 
 
