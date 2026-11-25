@@ -33,6 +33,9 @@ small, .muted { color: #5b6e80; }
 .sidebar-workspace strong, .sidebar-footer strong { display: block; color: #edf4f8; font-size: .9rem; }
 .sidebar-workspace small, .sidebar-footer small { display: block; color: #a4b5c5; font-size: .76rem; margin-top: 3px; }
 .sidebar nav { padding: 0 12px; overflow: auto; }
+.sidebar nav { overflow-x: hidden; scrollbar-width: thin; }
+.nav-item svg { flex: none; }
+.nav-item { white-space: normal; }
 .nav-title { color: #9aafc1; font-size: .68rem; font-weight: 700; letter-spacing: .12em; padding: 0 10px 8px; }
 .portal-nav { margin-top: 25px; }
 .nav-item { display: flex; align-items: center; gap: 11px; padding: 11px 11px; margin-bottom: 3px; color: #c4d0dc; font-size: .92rem; border: 1px solid transparent; border-radius: 7px; transition: background .18s; }
@@ -152,7 +155,54 @@ pre { margin: 3px 0; background: #edf3f6; border-radius: 6px; padding: 8px; font
 .timeline li p { color: #607789; }
 .dialog-fade { position: fixed; inset: 0; z-index: 20; background: #101b2a83; display: grid; place-items: center; padding: 18px; }
 .dialog { background: #fff; max-width: 425px; width: 100%; border-radius: 12px; padding: 20px; display: grid; gap: 12px; box-shadow: 0 15px 50px #0b172941; }
+.landing { min-height: 100vh; background: #f5f8fa; }
+.landing-header { max-width: 1220px; margin: 0 auto; padding: 22px clamp(18px, 4vw, 54px); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 18px; }
+.landing-brand { display: inline-flex; align-items: center; gap: 10px; font-size: 1.35rem; font-weight: 740; }
+.landing-header nav { display: flex; flex-wrap: wrap; gap: 18px; }
+.landing-header nav a { display: inline-flex; align-items: center; gap: 5px; font-weight: 670; color: #285166; }
+.landing-header nav a:hover { color: #087a72; }
+.landing-body { max-width: 1220px; margin: 0 auto; padding: 20px clamp(18px, 4vw, 54px) 44px; }
+.landing-hero { display: grid; grid-template-columns: 1.15fr 1fr; align-items: center; gap: clamp(18px, 5vw, 65px); padding-bottom: 25px; }
+.landing-hero h1 { font-size: clamp(2.45rem, 6vw, 5rem); line-height: 1.02; letter-spacing: -.052em; }
+.hero-copy { color: #53697a; font-size: clamp(1rem, 1.7vw, 1.2rem); max-width: 540px; }
+.landing-preview { background: #142335; color: #f1f7f8; border-radius: 15px; overflow: hidden; }
+.landing-preview img { display: block; width: 100%; height: clamp(130px, 24vw, 250px); object-fit: cover; object-position: center 59%; }
+.landing-preview > div { padding: 18px 20px 12px; }
+.landing-preview .eyebrow { color: #a0dfd7; }
+.landing-preview ul { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; color: #d6e4ea; }
+.landing-preview li { display: flex; align-items: center; gap: 7px; }
+.landing-preview li svg { width: 15px; height: 15px; }
+.photo-credit { display: block; padding: 0 20px 14px; color: #aed8d5; font-size: .78rem; }
+.scenario-section h2 { margin: 4px 0 10px; }
+.capabilities { margin-top: 26px; }
+.capabilities h2 { margin-bottom: 10px; }
+.capability-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 11px; }
+.capability { display: flex; gap: 10px; }
+.capability p { color: #526b7a; margin-top: 6px; }
+.capability small { margin-top: auto; }
+.capability button { white-space: normal; justify-content: space-between; text-align: left; }
+.claim-checklist { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.claim-checklist li { display: flex; align-items: start; gap: 8px; background: #f5f8fa; border-radius: 6px; padding: 7px 9px; }
+.claim-checklist li span { color: #657c88; flex: none; margin-top: 2px; }
+.claim-checklist li[data-collected=true] span { color: #087a72; }
+.claim-checklist small { display: block; overflow-wrap: anywhere; }
+.demo-mode { color: #516d79; font-size: .81rem; margin-bottom: 9px; }
+.scenario-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.scenario-card { display: flex; align-items: start; gap: 9px; padding: 13px; border: 1px solid #dbe4eb; border-radius: 9px; background: white; cursor: pointer; }
+.scenario-card:has(input:checked) { border-color: #359c90; background: #ecf8f5; }
+.scenario-card input[type=radio] { accent-color: #087a72; width: auto; margin: .25rem 0 0; flex: none; }
+.scenario-card small { display: block; margin-top: 4px; font-weight: 460; }
+.claim-progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px 14px; margin: 0; padding: 10px; background: #fff; list-style: none; border: 1px solid #dde8eb; border-radius: 9px; }
+.claim-progress li { display: flex; align-items: center; gap: 8px; padding: 4px 6px; font-weight: 650; color: #526b7a; overflow-wrap: anywhere; }
+.claim-progress li span { display: grid; place-items: center; width: 24px; height: 24px; flex: none; border-radius: 100%; background: #edf2f4; }
+.claim-progress li[data-state=current] { color: #086e68; }
+.claim-progress li[data-state=current] span { color: #fff; background: #087a72; }
+.claim-progress li[data-state=done] span { background: #e2f1eb; color: #247757; }
+.next-action { background: #e8f5f2; border: 1px solid #cce8e2; padding: 12px 15px; border-radius: 8px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; }
+.next-action p { color: #36576a; }
+.photo-grid span { overflow-wrap: anywhere; }
 @media(max-width: 1120px) {
+  .capability-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .app { --sidebar-width: 209px; }
   .metric-grid { gap: 9px; }
   .metric { padding: 12px; }
@@ -168,6 +218,7 @@ pre { margin: 3px 0; background: #edf3f6; border-radius: 6px; padding: 8px; font
   .mobile-overlay { display: block; position: fixed; inset: 0; z-index: 11; background: #1224348f; border: 0; }
 }
 @media(max-width: 625px) {
+  .capability-grid { grid-template-columns: 1fr; }
   .topbar { min-height: 58px; }
   .breadcrumbs > span, .breadcrumbs > svg { display: none; }
   .main-content { padding-top: 22px; }
@@ -176,6 +227,9 @@ pre { margin: 3px 0; background: #edf3f6; border-radius: 6px; padding: 8px; font
   .page-heading { align-items: start; flex-direction: column; }
   .panel { padding: 14px; }
   .table-tools { flex-wrap: wrap; }
+  .landing-hero, .scenario-grid { grid-template-columns: 1fr; }
+  .claim-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sidebar-workspace { margin-bottom: 17px; }
 }
 @media(prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }

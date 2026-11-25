@@ -8,7 +8,7 @@ from threading import Lock
 from uuid import UUID
 
 from claimpilot.config import Settings
-from claimpilot.schemas.knowledge import Document, Evidence, Operator, Scope, SearchRequest, Section
+from claimpilot.schemas.knowledge import Document, Evidence, Operator, SearchRequest, Section
 from claimpilot.storage.intake import IntakeError
 from claimpilot.storage.knowledge import IndexWork, KnowledgeStore
 
@@ -141,7 +141,8 @@ class KnowledgeIndex:
             logger.warning("knowledge_vector_cleanup_failed document_id=%s", doc_id)
 
     def search(self, tenant: str, request: SearchRequest, *, subject: str = "") -> list[Evidence]:
-        allowed = self.store.scoped_generations(tenant, request, self.config, subject)
+        document_id = str(request.document_id) if request.document_id else None
+        allowed = self.store.scoped_generations(tenant, request, self.config, subject, document_id=document_id)
         if not allowed:
             return []
         count = request.top_k or self.settings.claimpilot_kb_top_k
@@ -158,7 +159,7 @@ class KnowledgeIndex:
         except Exception:
             raise IntakeError(503, "retrieval_unavailable", "Knowledge retrieval is temporarily unavailable.") from None
         keys = found["ids"][0]
-        rows = self.store.scoped_chunks(tenant, request, self.config, subject, keys)
+        rows = self.store.scoped_chunks(tenant, request, self.config, subject, keys, document_id=document_id)
         result = []
         word_sets = []
         for key, distance in zip(keys, found["distances"][0], strict=True):
@@ -182,6 +183,8 @@ class KnowledgeIndex:
                 break
         return result
 
-    def revalidate(self, tenant: str, scope: Scope, evidence: list[Evidence], subject: str) -> list[Evidence]:
-        valid = self.store.scoped_chunks(tenant, scope, self.config, subject, [e.chunk_id for e in evidence])
+    def revalidate(self, tenant: str, scope: SearchRequest, evidence: list[Evidence], subject: str) -> list[Evidence]:
+        document_id = str(scope.document_id) if scope.document_id else None
+        valid = self.store.scoped_chunks(tenant, scope, self.config, subject, [e.chunk_id for e in evidence],
+                                         document_id=document_id)
         return [e for e in evidence if e.chunk_id in valid]

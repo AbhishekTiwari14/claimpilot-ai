@@ -56,11 +56,13 @@ class Document(DocumentInput):
     indexing_config: dict | None
     error_code: str | None
     created_at: str
+    chunk_count: int | None = None
 
 
 class SearchRequest(Scope):
     query: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=600)]
     top_k: int | None = Field(default=None, ge=1, le=12)
+    document_id: UUID | None = None
 
 
 class Evidence(BaseModel):

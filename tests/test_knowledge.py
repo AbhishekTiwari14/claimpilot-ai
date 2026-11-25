@@ -77,6 +77,23 @@ def ask(client, query="Does this policy cover dishwasher discharge?", scope=A):
     return client.post(f"{BASE}/playground/query", json={"query": query, **scope})
 
 
+def test_document_scoped_answers_never_use_other_documents(client):
+    first = upload(client).json()
+    second = upload(client, b"# Other clauses\n\n## Sudden water discharge\n\nA separate appliance exclusion applies.",
+                    name="second.md", key="second").json()
+    same_tenant_private = upload(client, b"# Private clauses\n\n## Sudden water discharge\n\nPrivate appliance terms.",
+                                 name="private.md", key="private", scope=A | {"subject_claimant_id": "customer"}).json()
+    scope = A | {"document_id": second["id"]}
+    answer = ask(client, "What does Sudden water discharge say?", scope).json()
+    assert answer["outcome"] == "answered"
+    assert {item["document_id"] for item in answer["retrieved"]} == {second["id"]}
+    assert {item["source"]["document_id"] for item in answer["citations"]} == {second["id"]}
+    assert search(client, scope=scope, headers=OTHER).json() == []
+    assert search(client, scope=A | {"document_id": same_tenant_private["id"]}).json() == []
+    assert search(client, scope=scope | {"policy_version": "v2"}).json() == []
+    assert client.get(f"{BASE}/documents/{first['id']}").json()["chunk_count"] > 0
+
+
 def pdf(text=None):
     writer = PdfWriter()
     page = writer.add_blank_page(width=200, height=200)

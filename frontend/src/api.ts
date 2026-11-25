@@ -5,6 +5,7 @@ export type ClaimRow = {
 export type Fact = { value: string | string[]; status: string };
 export type Claim = Omit<ClaimRow, 'damage_type' | 'dispatch_status'> & {
   facts: Record<string, Fact>; conflicts: Record<string, Fact[]>; missing_fields: string[];
+  pending_field: string | null;
   pending_message_id: string | null; processing_error: string | null;
   photo_follow_ups: { photo_id: string; question: string; kind: string }[];
 };
@@ -23,7 +24,8 @@ export type Analysis = { id: string; status: string; photo_ids: string[]; provid
 export type Scope = { document_type: 'policy' | 'operations'; policy_id?: string | null; policy_version?: string | null };
 export type DocumentInput = Scope & { title: string; subject_claimant_id?: string | null; document_version?: number };
 export type DocumentRow = DocumentInput & { id: string; filename: string; status: string; generation: number;
-  created_at: string; error_code: string | null };
+  created_at: string; error_code: string | null; chunk_count?: number | null;
+  indexing_config?: { embedding?: string; distance?: string; chunk_size?: number; chunk_overlap?: number } | null };
 export type Source = {
   chunk_id: string; filename: string; title: string; section: string | null; page: number | null;
   distance: number; text: string; policy_id: string | null; policy_version: string | null;
@@ -37,6 +39,7 @@ export type ClaimDetail = { claim: Claim; urgency: Urgency; analyses: Analysis[]
 export type Workflow = {
   workflow_id: string; claim_version: number; status: string; reason: string | null; pause_id: string | null;
   policy_outcome?: string | null; policy_citations?: string[]; dispatch_citations?: string[];
+  updated_at?: string | null;
   contractor_run_id?: string | null; proposal_id?: string | null; proposal_version?: number | null;
   transitions: { node: string; status: string; reason: string | null }[]; execution_error: string | null;
 };
@@ -44,6 +47,7 @@ export type RequirementSource = { chunk_id: string; filename: string; section: s
 export type SLA = { provenance: string; acknowledgement_limit_minutes: number; arrival_limit_minutes: number | null; sources: RequirementSource[] };
 export type Proposal = {
   id: string; version: number; status: string; stale: boolean; urgency: Urgency; explanation: string;
+  created_at: string;
   recommended_contractor_id: string | null; alternative_contractor_ids: string[];
   required_specialization: string | null; estimated_arrival_minutes: number | null;
   requirements: SLA | null; uncertainties: string[];
@@ -73,7 +77,8 @@ export class ApiError extends Error {
 }
 export function client(token: string) {
   async function request<T>(path: string, method = 'GET', body?: unknown, key?: string, blob = false): Promise<T> {
-    const headers = new Headers({ Authorization: `Bearer ${token}` });
+    const headers = new Headers();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
     if (key) headers.set('Idempotency-Key', key);
     if (body !== undefined && !(body instanceof FormData)) headers.set('Content-Type', 'application/json');
     const response = await fetch(base + path, {

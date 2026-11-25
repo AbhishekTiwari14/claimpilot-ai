@@ -58,6 +58,7 @@ def view(snapshot) -> dict:
     state = {key: value for key, value in snapshot.values.items() if key not in ("initiator", "fingerprint")}
     return state | {
         "pause_id": pause.id if pause else None,
+        "updated_at": snapshot.created_at,
         "execution_error": "node_execution_failed" if any(task.error for task in snapshot.tasks) else None,
     }
 

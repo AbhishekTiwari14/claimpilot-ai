@@ -21,6 +21,17 @@ const makeUpload = (file: File, metadata: DocumentInput) => {
   return form;
 };
 
+export async function seedDemoDocuments(token: string, key: string) {
+  const api = client(token);
+  const results = [];
+  for (const { filename, ...metadata } of manifest) {
+    results.push(await api.post<DocumentRow>('/knowledge/documents',
+      makeUpload(new File([synthetic[filename]], filename, { type: 'text/markdown' }), metadata as DocumentInput),
+      `${key}-${filename}`));
+  }
+  return results;
+}
+
 export function Knowledge({ token, connect }: { token: string; connect: () => void }) {
   const api = client(token);
   const [offset, setOffset] = useState(0);
@@ -34,15 +45,9 @@ export function Knowledge({ token, connect }: { token: string; connect: () => vo
   const seed = () => {
     setSuccess('');
     void action.run('seed-workspace', async key => {
-      const statuses = [];
-      for (const { filename, ...metadata } of manifest) {
-        const result = await api.post<DocumentRow>('/knowledge/documents',
-          makeUpload(new File([synthetic[filename]], filename, { type: 'text/markdown' }), metadata as DocumentInput),
-          `${key}-${filename}`);
-        statuses.push(result.status);
-      }
-      const ready = statuses.filter(status => status === 'ready').length;
-      setSuccess(`${ready} of ${statuses.length} synthetic documents indexed. Review the library for any failed items.`);
+      const results = await seedDemoDocuments(token, key);
+      const ready = results.filter(doc => doc.status === 'ready').length;
+      setSuccess(`${ready} of ${results.length} synthetic documents indexed. Review the library for any failed items.`);
     });
   };
   function submit(event: FormEvent<HTMLFormElement>) {

@@ -131,7 +131,13 @@ class KnowledgeStore(IntakeStore):
 
     def document(self, actor: Operator, doc_id: UUID) -> Document:
         with self._connection() as db:
-            return self._metadata(self._document(db, actor, doc_id))
+            document = self._metadata(self._document(db, actor, doc_id))
+            if document.status == "ready":
+                document.chunk_count = db.execute(
+                    "SELECT COUNT(*) FROM knowledge_chunks WHERE document_id=? AND generation=?",
+                    (str(doc_id), document.generation),
+                ).fetchone()[0]
+            return document
 
     def rebuild_ids(self, actor: Operator, key: str, config: dict) -> list[UUID]:
         with self._connection(write=True) as db:
@@ -220,18 +226,18 @@ class KnowledgeStore(IntakeStore):
             )
             db.execute("UPDATE idempotency_requests SET response_json='null' WHERE id=?", (request_id,))
 
-    def scoped_generations(self, tenant: str, scope: Scope, config: dict, subject: str) -> list[str]:
+    def scoped_generations(self, tenant: str, scope: Scope, config: dict, subject: str, *, document_id=None) -> list[str]:
         with self._connection() as db:
             rows = db.execute(
                 """SELECT id,generation FROM knowledge_documents WHERE tenant_id=? AND document_type=?
                    AND policy_id=? AND policy_version=? AND subject_claimant_id IN ('',?)
-                   AND config_json=? AND status='ready' AND deleted_at IS NULL""",
+                   AND config_json=? AND status='ready' AND deleted_at IS NULL AND (? IS NULL OR id=?)""",
                 (tenant, scope.document_type, scope.policy_id or "", scope.policy_version or "",
-                 subject, json.dumps(config, sort_keys=True)),
+                 subject, json.dumps(config, sort_keys=True), document_id, document_id),
             )
             return [f"{row['id']}:{row['generation']}" for row in rows]
 
-    def scoped_chunks(self, tenant: str, scope: Scope, config: dict, subject: str, keys: list[str]):
+    def scoped_chunks(self, tenant: str, scope: Scope, config: dict, subject: str, keys: list[str], *, document_id=None):
         if not keys:
             return {}
         markers = ",".join("?" for _ in keys)
@@ -242,9 +248,9 @@ class KnowledgeStore(IntakeStore):
                     JOIN knowledge_documents d ON d.id=c.document_id AND d.generation=c.generation
                     WHERE d.tenant_id=? AND d.document_type=? AND d.policy_id=? AND d.policy_version=?
                       AND d.subject_claimant_id IN ('',?) AND d.config_json=?
-                      AND d.status='ready' AND d.deleted_at IS NULL AND c.chunk_id IN ({markers})""",
+                      AND d.status='ready' AND d.deleted_at IS NULL AND (? IS NULL OR d.id=?) AND c.chunk_id IN ({markers})""",
                 (tenant, scope.document_type, scope.policy_id or "", scope.policy_version or "",
-                 subject, json.dumps(config, sort_keys=True), *keys),
+                 subject, json.dumps(config, sort_keys=True), document_id, document_id, *keys),
             )
             return {row["chunk_id"]: row for row in rows}
 

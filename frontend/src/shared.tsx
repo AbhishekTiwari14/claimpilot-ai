@@ -5,13 +5,14 @@ import type { Analysis, Answer, Fact } from './api';
 
 export const label = (value: string | null | undefined) => value
   ? value.replaceAll('_', ' ').replace(/^./, char => char.toUpperCase()) : '—';
+export const fieldLabel = (field: string) => field === 'property_location' ? 'Property address / service ZIP' : label(field);
 export const shortID = (value: string) => value.slice(0, 8).toUpperCase();
-export const localTime = (value: string | null) => value ? new Date(value).toLocaleString() : '—';
+export const localTime = (value: string | null | undefined) => value ? new Date(value).toLocaleString() : '—';
 export const valueText = (value: string | string[] | null | undefined) => Array.isArray(value) ? value.join(', ') : value || '—';
 export const providerName = (provider: string) => provider === 'groq' ? 'Live · Groq' : 'Offline fixture';
 
-export function Panel({ title, caption, action, children }: { title: string; caption?: string; action?: ReactNode; children: ReactNode }) {
-  return <section className="panel"><header className="panel-head"><div><h2>{title}</h2>{caption && <p>{caption}</p>}</div>{action}</header>{children}</section>;
+export function Panel({ id, title, caption, action, children }: { id?: string; title: string; caption?: string; action?: ReactNode; children: ReactNode }) {
+  return <section id={id} className="panel"><header className="panel-head"><div><h2>{title}</h2>{caption && <p>{caption}</p>}</div>{action}</header>{children}</section>;
 }
 export function Badge({ value }: { value: string }) {
   const tone = /fail|reject|intervention|emergency|breach|conflict/.test(value) ? 'red' :
@@ -35,20 +36,22 @@ export function Empty({ icon, title, children }: { icon: ReactNode; title: strin
 export function Facts({ facts, confirmedOnly = false }: { facts: Record<string, Fact>; confirmedOnly?: boolean }) {
   const entries = Object.entries(facts).filter(([, fact]) => !confirmedOnly || fact.status === 'customer_confirmed');
   return entries.length ? <dl className="facts">{entries.map(([field, fact]) =>
-    <div key={field}><dt>{label(field)}</dt><dd>{valueText(fact.value)}{!confirmedOnly && fact.status === 'candidate' && <small>To confirm</small>}</dd></div>
+    <div key={field}><dt>{fieldLabel(field)}</dt><dd>{valueText(fact.value)}{!confirmedOnly && fact.status === 'candidate' && <small>To confirm</small>}</dd></div>
   )}</dl> : <p className="muted">No {confirmedOnly ? 'confirmed ' : ''}facts yet.</p>;
 }
 export function Observations({ analyses }: { analyses: Analysis[] }) {
-  return analyses.length ? <div className="stack">{analyses.map(analysis => <article className="inset" key={analysis.id}>
-    <div className="row spread"><span className="mono">{shortID(analysis.id)}</span><Badge value={analysis.status} /></div>
+  return analyses.length ? <div className="stack">{analyses.map((analysis, index) => <article className="inset" key={analysis.id}>
+    <div className="row spread"><strong>{index === 0 ? 'Latest analysis' : 'Earlier analysis'}</strong><Badge value={analysis.status} /></div>
     <p className="muted">{providerName(analysis.provider)} · {analysis.model}</p>
     {analysis.error_code && <Notice kind="error">{label(analysis.error_code)}</Notice>}
-    {analysis.result?.observations.map(obs => <div className="observation" key={obs.image_id}>
-      <h3>Photo {shortID(obs.image_id)} <span className="muted">· {label(obs.image_quality)}</span></h3>
-      <p><strong>Visible:</strong> {valueText([...obs.visible.observed_damage_types.map(label), ...obs.visible.visible_indicators])}</p>
+    {analysis.result?.observations.map((obs, i) => <div className="observation" key={obs.image_id}>
+      <h3>Photo {i + 1} <span className="muted">· {label(obs.image_quality)}</span></h3>
+      <p><strong>Visible observations:</strong> {valueText([...obs.visible.observed_damage_types.map(label), ...obs.visible.visible_indicators])}</p>
       <p><strong>Areas and materials:</strong> {valueText([...obs.visible.affected_areas, ...obs.visible.materials])}</p>
-      <p><strong>Interpretation:</strong> {label(obs.interpretation.apparent_severity)} · {valueText(obs.interpretation.potential_safety_concerns.map(label))}</p>
-      <p className="muted">{[...obs.limitations, ...obs.follow_up_questions].join(' ')}</p>
+      <p><strong>AI interpretation:</strong> Apparent severity {label(obs.interpretation.apparent_severity).toLowerCase()}.
+        {obs.interpretation.potential_safety_concerns.length > 0 && ` Possible hazards: ${obs.interpretation.potential_safety_concerns.map(label).join(', ')}.`}</p>
+      <p><strong>Uncertainties:</strong> {obs.limitations.join(' ')}</p>
+      {obs.follow_up_questions.length > 0 && <p className="muted">{obs.follow_up_questions.join(' ')}</p>}
     </div>)}
     {analysis.result?.batch_limitations.map(item => <p key={item} className="muted">{label(item)}</p>)}
   </article>)}</div> : <p className="muted">No photo observations yet.</p>;
