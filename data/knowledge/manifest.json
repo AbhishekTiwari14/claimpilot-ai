@@ -1,0 +1,6 @@
+[
+  {"filename":"homeowners-a-v1.md","title":"Synthetic Cedar form A v1","document_type":"policy","policy_id":"SYN-123","policy_version":"v1"},
+  {"filename":"homeowners-b-v1.md","title":"Synthetic Birch form B v1","document_type":"policy","policy_id":"SYN-456","policy_version":"v1"},
+  {"filename":"homeowners-a-v2.md","title":"Synthetic Cedar form A v2","document_type":"policy","policy_id":"SYN-123","policy_version":"v2","document_version":2},
+  {"filename":"restoration-operations.md","title":"Synthetic restoration handbook","document_type":"operations"}
+]

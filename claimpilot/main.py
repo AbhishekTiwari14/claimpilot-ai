@@ -8,10 +8,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from claimpilot.api.intake import router
+from claimpilot.api.knowledge import router as knowledge_router
 from claimpilot.api.photos import router as photos_router
 from claimpilot.config import Settings
+from claimpilot.services.knowledge_index import MODEL, Embedding, KnowledgeIndex
 from claimpilot.services.llm import LLMService
 from claimpilot.storage.intake import IntakeError
+from claimpilot.storage.knowledge import KnowledgeStore
 from claimpilot.storage.photos import PhotoStore
 
 
@@ -19,7 +22,10 @@ class HealthResponse(BaseModel):
     status: Literal["ok"]
 
 
-def create_app(settings: Settings | None = None, *, llm: LLMService | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, *, llm: LLMService | None = None,
+    embed: Embedding | None = None, embedding_id: str = MODEL,
+) -> FastAPI:
     settings = settings if settings is not None else Settings()
     store = PhotoStore(settings.claimpilot_intake_db)
 
@@ -32,8 +38,12 @@ def create_app(settings: Settings | None = None, *, llm: LLMService | None = Non
     app.state.settings = settings
     app.state.intake_store = store
     app.state.llm = llm if llm is not None else LLMService(settings)
+    app.state.knowledge = KnowledgeIndex(
+        settings, KnowledgeStore(settings.claimpilot_intake_db), embed=embed, embedding_id=embedding_id,
+    )
     app.include_router(router)
     app.include_router(photos_router)
+    app.include_router(knowledge_router)
 
     @app.exception_handler(IntakeError)
     async def intake_error(_: Request, error: IntakeError) -> JSONResponse:

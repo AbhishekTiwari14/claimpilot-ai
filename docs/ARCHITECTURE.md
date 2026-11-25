@@ -31,7 +31,7 @@ A workspace is the tenant boundary represented by `tenant_id` in storage. Resolv
 | `storage/` | Versioned SQLite migrations, transactions and repository queries. Chroma policy index adapter. |
 | `tests/`, future `evals/` | Unit, graph, API and crash-path tests. Versioned synthetic scenarios and score runner. |
 
-The backend serves health, conversational intake, and damage photo evidence. Intake and photo analysis use synchronous API calls with a persisted reservation before provider I/O. The planned workflow worker will serialize downstream graph execution per claim and scan due SLAs and approval expiry. The future React/TypeScript client uses versioned OpenAPI types, Tailwind and shadcn/ui. [FastAPI settings](https://fastapi.tiangolo.com/advanced/settings/) · [shadcn/ui Vite setup](https://ui.shadcn.com/docs/installation/vite)
+The backend serves health, conversational intake, damage photo evidence, and the knowledge API. Intake, photo analysis and indexing use synchronous calls with a persisted reservation before external or compute work. The planned workflow worker will serialize downstream graph execution per claim and scan due SLAs and approval expiry. The future React/TypeScript client uses versioned OpenAPI types, Tailwind and shadcn/ui. [FastAPI settings](https://fastapi.tiangolo.com/advanced/settings/) · [shadcn/ui Vite setup](https://ui.shadcn.com/docs/installation/vite)
 
 ### Phase 1 model boundary
 
@@ -55,11 +55,13 @@ Phase 2 uses `claims` with a versioned intake snapshot and pending message metad
 
 ### Documents, indexing and source isolation
 
-Use a workspace-scoped document registry as the authoritative record for both seeded and uploaded content. A policy document must bind to exactly one authorized policy version in the same workspace. General knowledge documents use an explicit workspace knowledge scope. Resolve scope server-side and verify the selected policy belongs to the workspace before accepting or indexing its upload. The playground chooses an authorized scope explicitly. Claim policy retrieval always uses the resolved policy version.
+Phase 4 uses separate workspace operator credentials. Operators classify uploads into a policy ID and exact version or the operations collection. A policy document can also restrict its subject to a claimant. Shared forms are available in the playground, which requires an explicit scope. Assessments read confirmed intake and an operator-assigned version for that claim's confirmed policy ID. Their scope includes shared forms and that claimant's restricted documents. A claim requires an explicit binding even if only one version exists.
 
-Validate file type and size and store uploads under opaque private keys. Parse PDF/DOCX/TXT/MD without executing embedded instructions or macros. Queue indexing automatically after a valid upload and expose pending, indexing, ready, failed and archived states. Use content digests and deterministic chunk IDs for retries. Publish a new revision only after its index is complete. Filter by workspace, scope, and policy version before ranking, then revalidate every hit against the active, authorized SQLite revision. Archiving hides a document from retrieval immediately and schedules index cleanup. Chroma PersistentClient is rebuildable from stored revisions and uses local all-MiniLM-L6-v2 embeddings. [Chroma embeddings](https://docs.trychroma.com/docs/embeddings/embedding-functions)
+PDF, DOCX, UTF-8 TXT and Markdown uploads are checked for file content and size. The service extracts text and its page or section locator without running embedded content. A PDF without extractable text returns an explicit error. SQLite stores normalized text, document metadata and content hashes. Identical bytes are deduplicated within their workspace and scope. Upload attempts indexing synchronously after reserving the document in SQLite. Each indexing attempt uses a generation in its chunk IDs. The registry shows pending, indexing, ready or failed. A generation becomes searchable after all of its vectors and authoritative chunks have committed. A document is unavailable during reindex. Deletion removes its authoritative content immediately and attempts cleanup across the local vector projections.
 
-Citations include document and revision IDs, title, chunk ID, page or section locator, and quoted text. Revalidate them against the retrieved sources before returning answers. Insufficient evidence returns an explicit no-answer result. Uploaded document text is untrusted input to the model. Its content cannot select tools, change permissions, or approve a claim.
+The index uses LangChain's recursive splitter within each page or section, defaulting to 800 characters with 150 characters of overlap. Chroma persists cosine embeddings and scope metadata. A collection name incorporates the database identity, the model identity and the splitter configuration. The local all-MiniLM-L6-v2 ONNX model batches on CPU and uses a persistent cache. Before Chroma queries, SQLite selects the exact workspace, policy/version, subject and ready generations. The service checks all returned IDs again and removes overlapping hits. Rebuild uses stored sections, and relevance uses rank without an uncalibrated distance cutoff. [Chroma embeddings](https://docs.trychroma.com/docs/embeddings/embedding-functions) · [LangChain splitter](https://docs.langchain.com/oss/python/integrations/splitters/recursive_text_splitter)
+
+The answer service treats uploaded content as untrusted text and gives the model no tools. The model selects numbered evidence. The service resolves each selection to an authorized chunk and supplies its real ID and complete excerpt from SQLite. Publishing the whole retrieved clause preserves conditions and negation. Missing support produces an explicit insufficient-evidence outcome. Policy assessment returns advisory outcomes and evidence grouped by coverage, exclusion, deductible and limitation. It always recommends human review. The assessment cannot mutate claim facts or approve or deny coverage. Citation validity and support for the question are separate evaluation measures.
 
 ### Photograph observations and confirmed facts
 
@@ -142,10 +144,9 @@ IDs are server-generated UUID text unless otherwise stated. UTC times are RFC 33
 | `claim_messages` | `id PK, claim_id FK, actor_id, role, text, created_at`. Index claim/time/id. |
 | `claim_facts` | `claim_id FK, revision, facts_json, provenance_json, created_at`. PK claim/revision. Provenance pairs values with message IDs and validated spans or reviewer decision evidence. |
 | `policy_versions` | `id PK, tenant_id, policy_ref, property_ref, effective_from, effective_until, content_digest`. Unique tenant/policy/effective_from. Effective intervals include the start and exclude the end. The service rejects overlaps. |
-| `policy_clauses` | `id PK, policy_version_id FK, document_chunk_id FK, section, text, digest`. Index version/section. |
-| `knowledge_documents` | `id PK, tenant_id, scope, policy_version_id?, title, active_revision_id?, archived_at?, created_at`. Require policy version for policy scope and enforce the same workspace in the write transaction. |
-| `document_revisions` | `id PK, document_id FK, revision, media_type, storage_key, digest, indexing_state, error_code?, created_at`. Unique document/revision. |
-| `document_chunks` | `id PK, revision_id FK, ordinal, locator_json, text, digest`. Unique revision/ordinal. Workspace and policy scope derive from the document in SQLite and are copied to index metadata. |
+| `knowledge_documents` | `id PK, tenant_id, document_type, policy_id, policy_version, subject_claimant_id, title, filename, format, content_hash, document_version, sections_json, status, generation, config_json, error_code?, created_at, deleted_at?`. The live content hash is unique within a scope. |
+| `knowledge_chunks` | `chunk_id PK, document_id FK, generation, page?, section?, text`. Scope and version metadata derive from the document and are copied to Chroma. |
+| `claim_policy_bindings` | `claim_id PK/FK, policy_id, policy_version, operator_id`. An explicit binding must match the confirmed policy ID. |
 | `claim_photos` | `id PK, claim_id FK, width, height, size_bytes, sha256?, original_sha256?, data?, created_at`. Ownership derives from the claim. The BLOB and hashes are nulled on deletion. |
 | `photo_analyses` | `id PK, claim_id FK, photo_ids_json, status, provider, model, attempts, result_json?, error_code?`. Typed observations remain separate from fact revisions. |
 | `photo_analysis_images` | `analysis_id FK, photo_id FK`. Composite primary key. The service validates claim scope when linking photos. |
@@ -168,7 +169,7 @@ Approval creation and dispatch reservation verify the proposed scope, subject, d
 
 ## API contract
 
-The current API serves liveness, intake and photo endpoints. Future workflow and knowledge routes are planned under `/api/v1`. Use JSON and Pydantic-generated OpenAPI. Local synthetic users receive development bearer credentials configured outside Git. Roles are claimant, reviewer, knowledge manager and simulator. The server derives identity, tenant and permissions. A claim's owner can view its customer projection. Reviewers in the tenant can view operational evidence and audit data. Simulator credentials are scoped to simulator events only.
+The current API serves liveness, intake, photos and knowledge under `/api/v1`. Use JSON and Pydantic-generated OpenAPI. Local synthetic users receive development bearer credentials configured outside Git. The server derives identity, tenant and permissions. A claim's owner can view its customer projection. Knowledge operators manage their workspace and assess confirmed claims in it. Future workflow routes use reviewer and simulator roles.
 
 | Endpoint | Input | Success |
 | --- | --- | --- |
@@ -194,16 +195,20 @@ The current API serves liveness, intake and photo endpoints. Future workflow and
 | `GET /claims/{id}/photo-analyses` | None | 200 latest 20 analyses |
 | `GET /claims/{id}/photo-analyses/{analysis_id}` | None | 200 scoped status and report if active and completed |
 | `GET /claims/{id}/runs` | `cursor?, limit?` | 200 reviewer-only execution metadata |
-| `POST /knowledge/documents` | Multipart file, title, scope, policy version when required | 202 document and pending revision, knowledge manager only |
-| `GET /knowledge/documents` | `scope?, policy_version_id?, indexing_state?, cursor?, limit?` | 200 authorized document metadata page |
-| `GET /knowledge/documents/{id}` | None | 200 authorized document metadata and revisions |
-| `POST /knowledge/documents/{id}/revisions` | Multipart replacement or stored revision ID for reindexing | 202 queued revision work, knowledge manager only |
-| `POST /knowledge/documents/{id}/archive` | Expected active revision ID | 202 archived state, knowledge manager only |
-| `POST /knowledge/playground/query` | `{query, scope, policy_version_id?, limit?}` | 200 answer or no-answer status with verified citations |
+| `POST /knowledge/documents` | Multipart `document` and JSON `metadata` | 201 document with indexing status |
+| `GET /knowledge/documents` | `limit?, offset?` | 200 workspace document metadata page |
+| `GET /knowledge/documents/{id}` | None | 200 metadata and indexing status |
+| `POST /knowledge/documents/{id}/index` | None | 200 retried or rebuilt document |
+| `POST /knowledge/rebuild` | None | 200 indexing statuses for the workspace |
+| `DELETE /knowledge/documents/{id}` | None | 204 removal |
+| `POST /knowledge/search` | `{query, document_type, policy_id?, policy_version?, top_k?}` | 200 scoped chunks and cosine distances |
+| `POST /knowledge/playground/query` | Same scope and query as search | 200 grounded answer or insufficient evidence |
+| `POST /claims/{id}/policy-binding` | `{policy_version}` | 200 binding for the confirmed policy ID |
+| `POST /claims/{id}/policy-assessment` | None | 200 advisory assessment from confirmed facts and bound version |
 
 `ClaimView` includes ID, version, status, timestamps, allowed facts, urgency and an optional wait object with kind, item ID, questions or expiry. Reviewer views may include reason codes, clause citations, proposal and SLA milestones. Status values are `queued`, `processing`, `awaiting_information`, `awaiting_review`, `awaiting_approval`, `tracking`, `completed`, `closed_without_dispatch`. Simulator transitions go from `accepted` through `acknowledged`, `arrived`, `completed` or a permitted failure/cancellation. Monotonic versions and unique external event IDs prevent replay or regression. Report fields are schema version, claim ID, fact revision, facts/provenance, policy status/citations, urgency/rule decisions, human approvals/reviews, dispatch timeline, SLA outcomes and closure reason with an audit cutoff.
 
-Use required `Idempotency-Key` (1–128 characters) on every POST. Same actor/route/key plus canonical request digest returns the original acknowledgement. Different body or stale `expected_version` returns 409. Use 401 for missing credentials, 403 for insufficient role on permitted resources and 404 for out-of-scope resources. Errors use `{code, message, request_id, field_errors?}`. Malformed or invalid data returns 422. Limit JSON bodies to 64 KiB, messages to 4,000 characters and list pages to 100 items. Multipart endpoints enforce separate streamed byte limits and include a file digest in request idempotency. Ordering uses stable cursors and IDs. A 202 means input committed and work queued.
+Require `Idempotency-Key` (1–128 characters) for mutations. Knowledge search, playground queries and assessments are read-only. The same actor, route, key and canonical request digest identify the same mutation. Different bodies or stale `expected_version` values return 409. Use 401 for missing credentials, 403 for insufficient role on permitted resources and 404 for out-of-scope resources. Errors use `{code, message, request_id, field_errors?}`. Malformed or invalid data returns 422. Limit messages to 4,000 characters and list pages to 100 items. Multipart endpoints enforce separate streamed byte limits and include a file digest in request idempotency.
 
 ## Audit and observability
 

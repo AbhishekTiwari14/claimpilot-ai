@@ -1,15 +1,20 @@
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr, StringConstraints
+from pydantic import Field, SecretStr, StringConstraints, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from claimpilot.schemas.conversation import Claimant
+from claimpilot.schemas.knowledge import Operator
 
 ModelName = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_./-]{0,127}$")]
 
 
 class ClaimantCredential(Claimant):
+    token: SecretStr = Field(min_length=1)
+
+
+class OperatorCredential(Operator):
     token: SecretStr = Field(min_length=1)
 
 
@@ -35,3 +40,21 @@ class Settings(BaseSettings):
     claimpilot_photo_max_pixels: int = Field(default=16_000_000, ge=1, le=30_000_000)
     claimpilot_photo_output_edge: int = Field(default=1024, ge=64, le=1536)
     claimpilot_photos_per_claim: int = Field(default=30, ge=1, le=100)
+    claimpilot_kb_operators: list[OperatorCredential] = Field(default_factory=list)
+    claimpilot_kb_chroma: Path = Path("data/runtime/chroma")
+    claimpilot_kb_model_cache: Path = Path("data/runtime/embeddings")
+    claimpilot_kb_max_bytes: int = Field(default=5 * 1024 * 1024, ge=256, le=16 * 1024 * 1024)
+    claimpilot_kb_chunk_size: int = Field(default=800, ge=300, le=1600)
+    claimpilot_kb_chunk_overlap: int = Field(default=150, ge=0, le=500)
+    claimpilot_kb_batch_size: int = Field(default=24, ge=1, le=64)
+    claimpilot_kb_top_k: int = Field(default=5, ge=1, le=12)
+
+    @model_validator(mode="after")
+    def distinct_knowledge_credentials(self) -> "Settings":
+        operators = [actor.token.get_secret_value() for actor in self.claimpilot_kb_operators]
+        claimants = {actor.token.get_secret_value() for actor in self.claimpilot_claimants}
+        if len(set(operators)) != len(operators) or claimants.intersection(operators):
+            raise ValueError("Knowledge operator credentials must be distinct from all other credentials")
+        if self.claimpilot_kb_chunk_overlap >= self.claimpilot_kb_chunk_size:
+            raise ValueError("Knowledge chunk overlap must be smaller than chunk size")
+        return self

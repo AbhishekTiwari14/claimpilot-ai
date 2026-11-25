@@ -56,15 +56,16 @@ Add bounded photo uploads, safe local storage, a configurable vision adapter and
 
 See [Phase 3 example and API instructions](PHOTO_API.md).
 
-## Phase 4 — Knowledge base, policy evidence and urgency
+## Phase 4 — Knowledge base and policy evidence
 
-Introduce the downstream workflow and audit boundaries when integrating the first post-intake transition. Add preloaded synthetic documents, authorized PDF/DOCX/TXT/MD ingestion, document version and archive management, a rebuildable Chroma index with automatic indexing, and a read-only RAG playground API. Integrate scoped policy evidence, citation verification, triage rules, reviewer resolution and alerts. Test model tool selection under an allowlist and a budget.
+Add reproducible synthetic seeding, operator-authenticated PDF/DOCX/TXT/MD ingestion, an authoritative SQLite registry, a rebuildable local Chroma index, and a read-only RAG playground API. Add an explicit claim-to-policy-version binding and a reusable assessment against confirmed claim facts.
 
 - Uploads bind to an authorized workspace and policy version or to explicit general knowledge scope. Automatic indexing is observable and retryable. Archive, reindex and replacement cannot expose stale revisions or cross-workspace content.
 - Playground answers cite exact document revisions and locators or return an explicit no-answer result for insufficient evidence.
-- Retrieval filters policy version, date and workspace, and each citation resolves to exact stored text. Empty, ambiguous, conflicting or unavailable evidence routes to staff review. Citation and instruction-injection fixtures cannot escape approved scope.
-- Immediate hazards receive the highest review priority even when data is incomplete. Unknown or conflicting hazard state requires staff clearance. Deterministic urgency matches every hard-gate fixture.
-- Rebuild the index from SQLite and pass the retrieval thresholds below against cached local weights.
+- Retrieval filters exact policy version, subject and workspace. Each citation resolves to exact stored text. Missing or conflicting evidence remains advisory and assessment recommends human review. Date-based policy resolution and urgency remain downstream workflow responsibilities.
+- Measure retrieval Hit@5, citation validity, expected answer behavior and labeled evidence support on a small synthetic dataset. Run local ONNX embeddings, reopen persistent Chroma, and verify a live Groq answer from uploaded sources.
+
+See [Phase 4 API and evaluation instructions](KNOWLEDGE_API.md).
 
 ## Phase 5 — Contractor proposals, approval and simulated dispatch
 

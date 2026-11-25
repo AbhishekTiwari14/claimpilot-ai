@@ -25,6 +25,8 @@ agents = [
     "langgraph-checkpoint-sqlite>=3,<4",
     "langsmith>=0.16,<1",
     "chromadb>=1,<2",
+    "langchain-text-splitters>=1,<2",
+    "pypdf>=7.1,<8",
 ]
 
 [tool.pytest.ini_options]
