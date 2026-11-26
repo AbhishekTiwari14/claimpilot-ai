@@ -53,7 +53,7 @@ curl -fsS https://claims.example.com/customer/claims -o /dev/null
 docker stats --no-stream claimpilot
 ```
 
-Open the site and launch the interactive demo. Follow a sample claim through intake, photo analysis, explicit claim confirmation, policy review, contractor recommendation and human approval before simulated dispatch. Launch from a second tab or browser and verify the new workspace is empty. The first document index downloads the CPU embedding model. The cache is reused on later launches.
+Open **Customer Portal** or **Claims Operator** to enter directly. The hosted frontend obtains both scoped roles from the demo session endpoint and reuses the workspace on refresh and role changes in the same tab. To check isolation, open a fresh browser profile and verify that its claims and library start empty. Use **Try Interactive Demo** for the connected walkthrough, which indexes sample documents in the background. The first live index can download the CPU embedding model. The cache is reused on later launches.
 
 ## Configuration and limits
 

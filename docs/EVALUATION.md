@@ -1,6 +1,6 @@
 # Evaluation
 
-The checked-in [benchmark snapshot](../frontend/src/benchmark.json) is the source for the frontend evaluation page. It records the earlier Phase 9 deterministic regression run (134/134) and offline fixture results. The portfolio release check passed 145/145 tests on Windows with Python 3.11.18. Live inference was outside that release run.
+The checked-in [benchmark snapshot](../frontend/src/benchmark.json) is the source for the frontend evaluation page. It records the earlier Phase 9 deterministic regression run (134/134) and offline fixture results. The frontend portfolio release check passed 145/145 tests on Windows with Python 3.11.18. The full backend suite after hosted deployment support passed 154/154. These regression counts refer to separate runs.
 
 | Recorded run | Sample and method | Result |
 | --- | --- | --- |

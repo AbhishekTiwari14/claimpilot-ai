@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { Activity, BookOpen, ChevronDown, ChevronRight, ClipboardList, FlaskConical, LayoutDashboard, LogIn, Menu, MessageSquare, RotateCcw, Shield, Truck, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { ApiError, client, type History, type Turn } from './api';
+import { ApiError, client, onDemoSessionExpired, type History, type Turn } from './api';
 import { experienceFor, Landing, sampleMessages, scenarioFor, type Experience } from './demo';
 import Customer from './customer';
 import { Knowledge, Playground, demoDocumentCount, seedDemoDocuments } from './knowledge';
@@ -32,6 +32,8 @@ const customerNav = [
 ];
 const tokenKey = (role: Role) => `claimpilot.session.${role}`;
 const setupStorageKey = 'claimpilot.demo.setup';
+const portalLaunchKey = 'claimpilot.demo.portal-launch';
+const portalPath = /^\/(?:customer(?:\/claims)?|operator|claims\/[^/]+|knowledge|playground|showcase\/rag|contractors)\/?$/;
 type DemoSetup = {
   key: string;
   sample?: { scenario: string; conversation: string; claim: string; version: number; nextMessage: number };
@@ -61,16 +63,71 @@ function App() {
   const demoAvailability = useQuery({ queryKey: ['demo-availability'],
     queryFn: async () => {
       try { return await client('').get<{ enabled: boolean; hosted?: boolean; provider?: 'groq' | 'offline' }>('/demo/status'); }
-      catch { return { enabled: false, hosted: false, provider: undefined }; }
+      catch (error) {
+        if (error instanceof ApiError && (error.status === 404 || error.code === 'demo_local_only')) return { enabled: false, hosted: false };
+        throw error;
+      }
     },
   });
+  const hosted = demoAvailability.data?.hosted === true;
+  const hasWorkspace = demoSession && !!sessions.claimant && !!sessions.operator;
+  const needsWorkspace = hosted && portalPath.test(location.pathname) && !hasWorkspace;
+  const portalSession = useQuery({
+    ...setupQueryOptions,
+    queryKey: ['portal-session', revision],
+    enabled: needsWorkspace && !phase,
+    queryFn: async () => {
+      const key = sessionStorage.getItem(portalLaunchKey) || crypto.randomUUID();
+      sessionStorage.setItem(portalLaunchKey, key);
+      try {
+        return await client('').post<Record<Role, string>>('/demo/session', undefined, key);
+      } catch (error) {
+        if (error instanceof ApiError && error.code === 'demo_session_required') sessionStorage.removeItem(portalLaunchKey);
+        throw error;
+      }
+    },
+  });
+  const saveDemoSession = useCallback((session: Record<Role, string>, nextSetup: DemoSetup | null) => {
+    if (nextSetup) sessionStorage.setItem(setupStorageKey, JSON.stringify(nextSetup));
+    else sessionStorage.removeItem(setupStorageKey);
+    sessionStorage.removeItem(portalLaunchKey);
+    for (const role of ['operator', 'claimant'] as const) sessionStorage.setItem(tokenKey(role), session[role]);
+    sessionStorage.setItem('claimpilot.demo', 'true');
+    resetWalkthrough();
+    setSetup(nextSetup);
+    setSessions(session);
+    setDemoSession(true);
+    setRevision(value => value + 1);
+  }, []);
+  useEffect(() => {
+    if (needsWorkspace && !phase && portalSession.data) {
+      queryClient.removeQueries({ predicate: ({ queryKey }) => !['demo-availability', 'portal-session'].includes(String(queryKey[0])) });
+      saveDemoSession(portalSession.data, null);
+    }
+  }, [needsWorkspace, phase, portalSession.data, saveDemoSession]);
+  useLayoutEffect(() => {
+    if (!hosted || !hasWorkspace) return;
+    return onDemoSessionExpired(token => {
+      if (!Object.values(sessions).includes(token) ||
+          !(['claimant', 'operator'] as const).some(role => sessionStorage.getItem(tokenKey(role)) === token)) return;
+      for (const role of ['operator', 'claimant'] as const) sessionStorage.removeItem(tokenKey(role));
+      sessionStorage.removeItem('claimpilot.demo');
+      sessionStorage.removeItem(setupStorageKey);
+      setSetup(null);
+      setSessions({ claimant: '', operator: '' });
+      setDemoSession(false);
+      setRevision(value => value + 1);
+      if (location.pathname.startsWith('/claims/')) navigate('/operator', { replace: true });
+      else if (location.pathname.startsWith('/customer') && location.search) navigate(location.pathname, { replace: true });
+    });
+  }, [hasWorkspace, hosted, location.pathname, location.search, navigate, sessions]);
   const role = location.pathname.startsWith('/customer') ? 'claimant' : 'operator';
   const params = new URLSearchParams(location.search);
   const experience = experienceFor(params.get('experience'));
   const policies = useQuery({
     ...setupQueryOptions,
     queryKey: ['demo-policies', setup?.key],
-    enabled: demoSession && !!setup && !!sessions.operator && location.pathname !== '/',
+    enabled: hasWorkspace && !!setup && location.pathname !== '/',
     queryFn: async ({ signal }) => {
       const key = setup!.key;
       await seedDemoDocuments(sessions.operator, key, {
@@ -83,7 +140,7 @@ function App() {
   const sampleIntake = useQuery({
     ...setupQueryOptions,
     queryKey: ['demo-intake', setup?.key],
-    enabled: demoSession && !!setup?.sample && !!sessions.claimant && location.pathname !== '/',
+    enabled: hasWorkspace && !!setup?.sample && location.pathname !== '/',
     queryFn: async ({ signal }) => {
       const { key } = setup!;
       const saved = readSetup();
@@ -120,8 +177,7 @@ function App() {
   useEffect(() => {
     document.title = location.pathname === '/' ? 'ClaimPilot AI | Property Claims' : `${heading} | ClaimPilot AI`;
   }, [heading, location.pathname]);
-  const hosted = demoAvailability.data?.hosted === true;
-  const connect = () => hosted ? navigate('/') : setDialog(role);
+  const connect = () => { if (demoAvailability.isSuccess && !hosted) setDialog(role); };
   const update = (selected: Role, token: string) => {
     if (demoSession) {
       for (const role of ['operator', 'claimant'] as const) sessionStorage.removeItem(tokenKey(role));
@@ -133,7 +189,7 @@ function App() {
     } else setSessions(prev => ({ ...prev, [selected]: token }));
     if (token) sessionStorage.setItem(tokenKey(selected), token);
     else sessionStorage.removeItem(tokenKey(selected));
-    queryClient.clear();
+    queryClient.removeQueries({ predicate: ({ queryKey }) => queryKey[0] !== 'demo-availability' });
     setRevision(prev => prev + 1);
     setDialog(null);
   };
@@ -149,7 +205,7 @@ function App() {
       const search = new URLSearchParams({ scenario, experience });
       const turn = experience === 'rag' ? null : await client(session.claimant).post<Turn>('/conversations', undefined, current.key);
       const nextSetup: DemoSetup | null = experience === 'full' || experience === 'workflow' ? { key: current.key } : null;
-      queryClient.clear();
+      queryClient.removeQueries({ predicate: ({ queryKey }) => queryKey[0] !== 'demo-availability' });
       if (turn) {
         const { conversation_id: conversation, claim_id: claim, version } = turn.claim;
         search.set('conversation', conversation);
@@ -157,15 +213,7 @@ function App() {
         queryClient.setQueryData(['customer-claim', claim], turn.claim);
         if (nextSetup && experience === 'workflow') nextSetup.sample = { scenario, conversation, claim, version, nextMessage: 0 };
       }
-      if (nextSetup) sessionStorage.setItem(setupStorageKey, JSON.stringify(nextSetup));
-      else sessionStorage.removeItem(setupStorageKey);
-      setSetup(nextSetup);
-      for (const role of ['operator', 'claimant'] as const) sessionStorage.setItem(tokenKey(role), session[role]);
-      sessionStorage.setItem('claimpilot.demo', 'true');
-      resetWalkthrough();
-      setSessions(session);
-      setDemoSession(true);
-      setRevision(value => value + 1);
+      saveDemoSession(session, nextSetup);
       launchKey.current = null;
       navigate(`${experience === 'rag' ? '/showcase/rag' : '/customer'}?${search}`);
     } catch (error) {
@@ -175,7 +223,7 @@ function App() {
     finally { setPhase(''); }
   };
   if (location.pathname === '/') return <Landing enabled={demoAvailability.data?.enabled === true}
-    hosted={hosted} loading={demoAvailability.isPending} phase={phase} error={demoError} launch={(id, experience) => void launch(id, experience)} />;
+    hosted={hosted} loading={demoAvailability.isPending} phase={phase} error={demoError || demoAvailability.error} launch={(id, experience) => void launch(id, experience)} />;
   return <div className="app">
     {menu && <button className="mobile-overlay" aria-label="Close navigation" onClick={() => setMenu(false)} />}
     <aside className={`sidebar ${menu ? 'open' : ''}`}>
@@ -186,6 +234,7 @@ function App() {
         {items.map(({ to, name, icon: Icon }) => <NavLink to={to} end className={({ isActive }) =>
           `nav-item ${isActive || (to === '/operator' && location.pathname.startsWith('/claims/')) ? 'active' : ''}`}
           key={to} onClick={() => setMenu(false)}><Icon size={18} />{name}</NavLink>)}
+        {hosted && role === 'claimant' && <Link to="/operator" className="nav-item" onClick={() => setMenu(false)}><LayoutDashboard size={18} /> Claims Operator</Link>}
         <Link to="/" className="nav-item" onClick={() => setMenu(false)}><Shield size={18} /> Back to home</Link>
       </nav>
       <div className="sidebar-footer"><span className="footer-dot" /> <div><strong>{hosted ? 'Demo workspace' : 'Local workspace'}</strong><small>Simulated contractor dispatch</small></div></div>
@@ -198,7 +247,7 @@ function App() {
         <div className="row wrap">{demoSession && demoAvailability.data?.enabled &&
           <Button variant="ghost" size="sm" disabled={!!phase} onClick={() => void launch(scenarioFor(params.get('scenario')).id, experienceFor(params.get('experience')))}>
             <RotateCcw /> Restart demo</Button>}
-          {hosted ? !demoSession && <Button onClick={connect}>Start demo</Button> :
+          {demoAvailability.isSuccess && !hosted &&
             <button className="session-button" onClick={connect}><span className="session-avatar">{sessions[role] ? (role === 'operator' ? 'OP' : 'CL') : <LogIn size={15} />}</span>
               <span>{sessions[role] ? (role === 'operator' ? 'Operator session' : 'Claimant session') : 'Connect session'}</span><ChevronDown size={15} /></button>}</div>
       </header>
@@ -213,6 +262,12 @@ function App() {
           <Failure error={sampleIntake.error} /><Button variant="outline" onClick={() => void sampleIntake.refetch({ cancelRefetch: false })}>Retry sample claim setup</Button>
         </div> : <Notice>Preparing a sample claim for your confirmation…</Notice>)}
         <WalkthroughProgress />
+        {demoAvailability.isError ? <div className="stack tight"><Failure error={demoAvailability.error} />
+          <Button variant="outline" onClick={() => void demoAvailability.refetch()}>Retry connection</Button></div> :
+          demoAvailability.isPending || needsWorkspace ?
+            portalSession.isError && needsWorkspace ? <div className="stack tight"><Failure error={portalSession.error} />
+              <Button variant="outline" onClick={() => void portalSession.refetch({ cancelRefetch: false })}>Retry demo access</Button></div> :
+              <Notice>{needsWorkspace ? 'Opening your demo workspace…' : 'Checking demo access…'}</Notice> :
         <Routes>
           <Route path="/operator" element={<Operations token={sessions.operator} connect={connect} />} />
           <Route path="/claims/:claimID" element={<OperatorClaim token={sessions.operator} connect={connect} guided={demoSession} preparingPolicies={preparingPolicies} />} />
@@ -221,14 +276,14 @@ function App() {
           <Route path="/showcase/rag" element={<RagShowcase token={sessions.operator} connect={connect} />} />
           <Route path="/contractors" element={<Contractors token={sessions.operator} connect={connect} />} />
           <Route path="/evaluations" element={<Evaluations />} />
-          <Route path="/customer" element={<Customer token={sessions.claimant} connect={connect} guided={demoSession} preparingSample={preparingSample} />} />
-          <Route path="/customer/claims" element={<Customer token={sessions.claimant} connect={connect} guided={demoSession} list preparingSample={preparingSample} />} />
+          <Route path="/customer" element={<Customer token={sessions.claimant} connect={connect} guided={demoSession && params.has('experience')} preparingSample={preparingSample} />} />
+          <Route path="/customer/claims" element={<Customer token={sessions.claimant} connect={connect} guided={demoSession && params.has('experience')} list preparingSample={preparingSample} />} />
           <Route path="*" element={<><h1>Page not found</h1><Link className="inline-link" to="/">Return home</Link></>} />
-        </Routes>
+        </Routes>}
       </main>
       </Walkthrough>
     </div>
-    {!hosted && dialog && <SessionDialog role={dialog} connected={!!sessions[dialog]} close={() => setDialog(null)} update={update} />}
+    {demoAvailability.isSuccess && !hosted && dialog && <SessionDialog role={dialog} connected={!!sessions[dialog]} close={() => setDialog(null)} update={update} />}
   </div>;
 }
 

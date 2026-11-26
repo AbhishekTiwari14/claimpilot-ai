@@ -2,11 +2,13 @@
 
 Start offline or live interactive mode using the [README](../README.md#run-the-interactive-demo). The interactive runner binds to loopback and creates a fresh database and Chroma directory under `data/runtime` on every launch. Each visitor session has its own synthetic workspace.
 
-If port 8000 is occupied, add `--port 8010` to the backend command and set `$env:CLAIMPILOT_DEV_API_TARGET = 'http://127.0.0.1:8010'` before starting Vite. Its development and preview proxy forwards `/api` to loopback port 8000 by default. See the [deployment audit](DEPLOYMENT.md) for production routing.
+If port 8000 is occupied, add `--port 8010` to the backend command and set `$env:CLAIMPILOT_DEV_API_TARGET = 'http://127.0.0.1:8010'` before starting Vite. Its development and preview proxy forwards `/api` to loopback port 8000 by default. See the [deployment guide](DEPLOYMENT.md) for production routing.
 
 `synthetic-wall.png` is generated from a repository fixture. The cropped `fema-wall.jpg` is a public-domain photograph by Patsy Lynch from a separate incident. [FEMA photograph and license](https://commons.wikimedia.org/wiki/File:FEMA_-_17647_-_Photograph_by_Patsy_Lynch_taken_on_10-18-2005_in_Louisiana.jpg)
 
 ## Manual token sessions
+
+Hosted visitors enter either portal directly and receive a workspace automatically. The instructions below apply to local and private deployments.
 
 Use this mode for a named local workspace that persists across restarts. Run from the repository root in PowerShell and choose distinct private tokens.
 

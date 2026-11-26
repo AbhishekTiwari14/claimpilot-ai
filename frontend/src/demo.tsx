@@ -47,7 +47,7 @@ export function Landing({ enabled, hosted, loading, phase, error, launch }: {
           <p className="hero-copy">Report damage in your own words. ClaimPilot gathers the facts, checks the policy, and suggests a contractor. A person reviews the recommendation before any simulated dispatch.</p>
           <div className="row wrap"><Button size="default" disabled={!enabled || !!phase} onClick={() => launch(selected)}>
             {phase || 'Try Interactive Demo'}<ArrowRight /></Button><small>About 2–3 minutes · Sample information only</small></div>
-          {!enabled && !loading && <p className="muted">Interactive demo access is disabled here. Use a portal to sign in manually.</p>}
+          {!enabled && !loading && !error && <p className="muted">Interactive demo access is disabled here. Use a portal to sign in manually.</p>}
           {hosted && <p className="muted">Use synthetic information only. Demo workspaces expire, and AI requests are processed by Groq.</p>}
           <Failure error={error} />
         </div>

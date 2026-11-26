@@ -57,13 +57,13 @@ The graph persists native interrupts in a sibling SQLite checkpoint database so 
 
 | Safeguard or decision | Trade-off |
 | --- | --- |
-| Workspace-scoped bearer credentials, scoped evidence lookups and typed validation | Credentials suit a local pilot. A public demo needs expiring visitor sessions, abuse controls and isolation tests. |
+| Workspace-scoped bearer credentials, scoped evidence lookups and typed validation | Hosted visitors receive expiring workspace credentials automatically. The hosted server enforces creation, request, upload and model budgets. |
 | Model suggestions, deterministic routing and versioned human approval | Operators retain control at each consequential step. Ambiguity and stale proposals require intervention. |
 | SQLite domain state and separate graph checkpoints, with Chroma as a derived index | Few moving parts for a single host. Workflow locking and synchronous provider or indexing calls constrain concurrency. Backups must preserve consistent domain and checkpoint state. |
 | Whole-clause citations resolved by the server | Citations retain conditions and provenance. Semantic support still needs evaluation and operator judgment. |
 | Bounded model retries, sanitized trace metadata and synthetic fixtures | Offline runs are reproducible. Live responses, latency, rate limits and ambiguous inputs require broader validation. |
 
-The pilot ends at simulated acknowledgement and reassignment. Arrival and completion tracking, scheduled SLA processing, formal claim reports, OCR for scanned PDFs, production identity and live dispatch are future work. Real claim handling would also require privacy and retention controls, operational monitoring, recovery drills, and broader held-out evaluations. [Deployment audit](DEPLOYMENT.md) · [Implementation history](IMPLEMENTATION_PLAN.md)
+The pilot ends at simulated acknowledgement and reassignment. Arrival and completion tracking, scheduled SLA processing, formal claim reports, OCR for scanned PDFs, production identity and live dispatch are future work. Real claim handling would also require privacy and retention controls, operational monitoring, recovery drills, and broader held-out evaluations. [Deployment guide](DEPLOYMENT.md) · [Implementation history](IMPLEMENTATION_PLAN.md)
 
 ## Design references
 

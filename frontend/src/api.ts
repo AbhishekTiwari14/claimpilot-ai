@@ -79,6 +79,12 @@ export function modelLimitMessage(code: string | null | undefined) {
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
 }
+const demoExpiryListeners = new Set<(token: string) => void>();
+export function onDemoSessionExpired(listener: (token: string) => void) {
+  demoExpiryListeners.add(listener);
+  return () => { demoExpiryListeners.delete(listener); };
+}
+
 export function client(token: string) {
   async function request<T>(path: string, method = 'GET', body?: unknown, key?: string, blob = false): Promise<T> {
     const headers = new Headers();
@@ -91,6 +97,9 @@ export function client(token: string) {
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
+      if (token && response.status === 401 && data.code === 'demo_session_required') {
+        for (const listener of demoExpiryListeners) listener(token);
+      }
       throw new ApiError(response.status, data.code || data.error_code || 'request_failed',
         data.message || modelLimitMessage(data.error_code) ||
           (data.error_code ? data.error_code.replaceAll('_', ' ') : `Request failed (${response.status}).`));
