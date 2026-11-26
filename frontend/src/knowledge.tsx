@@ -21,18 +21,48 @@ const makeUpload = (file: File, metadata: DocumentInput) => {
   return form;
 };
 
-export async function seedDemoDocuments(token: string, key: string) {
+export const demoDocumentCount = manifest.length;
+
+export async function seedDemoDocuments(token: string, key: string, options?: {
+  signal: AbortSignal; onProgress: (ready: number) => void;
+}) {
   const api = client(token);
+  const existing = await api.get<DocumentRow[]>('/knowledge/documents?limit=100');
+  const samples = await Promise.all(manifest.map(async ({ filename, ...metadata }) => {
+    const bytes = new TextEncoder().encode(synthetic[filename]);
+    const hash = await crypto.subtle.digest('SHA-256', bytes);
+    const contentHash = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
+    const document = existing.find(doc => doc.content_hash === contentHash &&
+      doc.document_type === metadata.document_type && (doc.policy_id ?? undefined) === metadata.policy_id &&
+      (doc.policy_version ?? undefined) === metadata.policy_version && !doc.subject_claimant_id);
+    return { filename, metadata: metadata as DocumentInput, document };
+  }));
+  let ready = samples.filter(({ document }) => document?.status === 'ready').length;
+  options?.onProgress(ready);
   const results = [];
-  for (const { filename, ...metadata } of manifest) {
-    results.push(await api.post<DocumentRow>('/knowledge/documents',
-      makeUpload(new File([synthetic[filename]], filename, { type: 'text/markdown' }), metadata as DocumentInput),
-      `${key}-${filename}`));
+  for (const { filename, metadata, document } of samples) {
+    options?.signal.throwIfAborted();
+    if (document?.status === 'ready') {
+      results.push(document);
+      continue;
+    }
+    if (document?.status === 'indexing') throw new Error(`Indexing is already in progress for ${filename}. Retry once it finishes.`);
+    const result = document?.status === 'failed'
+      ? await api.post<DocumentRow>(`/knowledge/documents/${document.id}/index`, undefined, crypto.randomUUID())
+      : await api.post<DocumentRow>('/knowledge/documents',
+        makeUpload(new File([synthetic[filename]], filename, { type: 'text/markdown' }), metadata),
+        `${key}-${filename}`);
+    options?.signal.throwIfAborted();
+    results.push(result);
+    if (result.status === 'ready') options?.onProgress(++ready);
+    else if (options) throw new Error(`Could not index ${filename}. Retry to continue.`);
   }
   return results;
 }
 
-export function Knowledge({ token, connect }: { token: string; connect: () => void }) {
+export function Knowledge({ token, connect, preparingSamples = false }: {
+  token: string; connect: () => void; preparingSamples?: boolean;
+}) {
   const api = client(token);
   const [offset, setOffset] = useState(0);
   const [file, setFile] = useState<File | null>(null);
@@ -79,7 +109,7 @@ export function Knowledge({ token, connect }: { token: string; connect: () => vo
   };
   return <div className="stack">
     <div className="page-heading"><div><h1>Knowledge base</h1><p>Manage policy and operational sources for this workspace.</p></div>
-      {token && <Button variant="outline" disabled={action.pending} onClick={seed}><LibraryBig /> Load synthetic documents</Button>}</div>
+      {token && <Button variant="outline" disabled={action.pending || preparingSamples} onClick={seed}><LibraryBig /> Load synthetic documents</Button>}</div>
     {!token ? <Panel title="Document library"><Empty icon={<BookOpen />} title="Connect your operator session"><Button onClick={connect}>Connect session</Button></Empty></Panel> : <>
       <Failure error={docs.error || action.error} />{success && <Notice kind="success">{success}</Notice>}{action.pending && <Loading />}
       <Panel title="Upload a document" caption="Accepted formats are PDF, DOCX, TXT and Markdown.">

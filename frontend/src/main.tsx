@@ -3,10 +3,10 @@ import { Activity, BookOpen, ChevronDown, ChevronRight, ClipboardList, FlaskConi
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { ApiError, client, type Turn } from './api';
+import { ApiError, client, type History, type Turn } from './api';
 import { experienceFor, Landing, sampleMessages, scenarioFor, type Experience } from './demo';
 import Customer from './customer';
-import { Knowledge, Playground, seedDemoDocuments } from './knowledge';
+import { Knowledge, Playground, demoDocumentCount, seedDemoDocuments } from './knowledge';
 import { RagShowcase } from './rag-showcase';
 import { Operations, OperatorClaim } from './operations';
 import { Contractors, Evaluations } from './resources';
@@ -31,6 +31,16 @@ const customerNav = [
   { to: '/customer/claims', name: 'My Claims', icon: ClipboardList },
 ];
 const tokenKey = (role: Role) => `claimpilot.session.${role}`;
+const setupStorageKey = 'claimpilot.demo.setup';
+type DemoSetup = {
+  key: string;
+  sample?: { scenario: string; conversation: string; claim: string; version: number; nextMessage: number };
+};
+function readSetup(): DemoSetup | null {
+  try { return JSON.parse(sessionStorage.getItem(setupStorageKey) ?? 'null'); }
+  catch { return null; }
+}
+const setupQueryOptions = { staleTime: 'static', retryOnMount: false } as const;
 
 function App() {
   const location = useLocation();
@@ -43,6 +53,8 @@ function App() {
   const [menu, setMenu] = useState(false);
   const [revision, setRevision] = useState(0);
   const [demoSession, setDemoSession] = useState(() => sessionStorage.getItem('claimpilot.demo') === 'true');
+  const [setup, setSetup] = useState(readSetup);
+  const [indexed, setIndexed] = useState({ key: '', count: 0 });
   const [phase, setPhase] = useState('');
   const [demoError, setDemoError] = useState<unknown>(null);
   const launchKey = useRef<{ target: string; key: string } | null>(null);
@@ -55,6 +67,50 @@ function App() {
   const role = location.pathname.startsWith('/customer') ? 'claimant' : 'operator';
   const params = new URLSearchParams(location.search);
   const experience = experienceFor(params.get('experience'));
+  const policies = useQuery({
+    ...setupQueryOptions,
+    queryKey: ['demo-policies', setup?.key],
+    enabled: demoSession && !!setup && !!sessions.operator && location.pathname !== '/',
+    queryFn: async ({ signal }) => {
+      const key = setup!.key;
+      await seedDemoDocuments(sessions.operator, key, {
+        signal, onProgress: count => setIndexed({ key, count }),
+      });
+      await queryClient.invalidateQueries({ queryKey: ['documents'] });
+      return true;
+    },
+  });
+  const sampleIntake = useQuery({
+    ...setupQueryOptions,
+    queryKey: ['demo-intake', setup?.key],
+    enabled: demoSession && !!setup?.sample && !!sessions.claimant && location.pathname !== '/',
+    queryFn: async ({ signal }) => {
+      const { key } = setup!;
+      const saved = readSetup();
+      const sample = { ...(saved?.key === key ? saved.sample! : setup!.sample!) };
+      const claimant = client(sessions.claimant);
+      const messages = sampleMessages(scenarioFor(sample.scenario));
+      try {
+        for (; sample.nextMessage < messages.length;) {
+          signal.throwIfAborted();
+          const turn = await claimant.post<Turn>(`/conversations/${sample.conversation}/messages`,
+            { message: messages[sample.nextMessage], expected_version: sample.version }, `${key}-${sample.nextMessage}`);
+          signal.throwIfAborted();
+          sample.version = turn.claim.version;
+          sample.nextMessage += 1;
+          sessionStorage.setItem(setupStorageKey, JSON.stringify({ key, sample }));
+        }
+      } finally {
+        if (!signal.aborted) await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['conversation', sample.conversation] }),
+          queryClient.invalidateQueries({ queryKey: ['customer-claim', sample.claim] }),
+        ]);
+      }
+      return true;
+    },
+  });
+  const preparingPolicies = demoSession && !!setup && !policies.isSuccess;
+  const preparingSample = demoSession && !!setup?.sample && params.get('conversation') === setup.sample.conversation && !sampleIntake.isSuccess;
   const items = role === 'claimant' ? customerNav : navigation;
   const heading = location.pathname === '/customer' && experience === 'vision' ? 'Damage Analysis' :
     location.pathname === '/customer' && experience === 'chat' ? 'Conversational AI' :
@@ -70,6 +126,8 @@ function App() {
     if (demoSession) {
       for (const role of ['operator', 'claimant'] as const) sessionStorage.removeItem(tokenKey(role));
       sessionStorage.removeItem('claimpilot.demo');
+      sessionStorage.removeItem(setupStorageKey);
+      setSetup(null);
       setSessions({ operator: '', claimant: '', [selected]: token });
       setDemoSession(false);
     } else setSessions(prev => ({ ...prev, [selected]: token }));
@@ -88,28 +146,20 @@ function App() {
     try {
       setPhase('Creating your demo…');
       const session = await client('').post<Record<Role, string>>('/demo/session', undefined, current.key);
-      if (experience === 'full' || experience === 'workflow') {
-        setPhase('Indexing sample policies…');
-        const docs = await seedDemoDocuments(session.operator, current.key);
-        if (docs.some(doc => doc.status !== 'ready')) {
-          launchKey.current = null;
-          throw new Error('A sample document did not index. Try starting the demo again.');
-        }
-      }
       const search = new URLSearchParams({ scenario, experience });
-      if (experience !== 'rag') {
-        const claimant = client(session.claimant);
-        let turn = await claimant.post<Turn>('/conversations', undefined, current.key);
-        search.set('conversation', turn.claim.conversation_id);
-        if (experience === 'workflow') {
-          setPhase('Preparing a sample claim for your confirmation…');
-          for (const [index, message] of sampleMessages(scenarioFor(scenario)).entries()) {
-            turn = await claimant.post<Turn>(`/conversations/${turn.claim.conversation_id}/messages`,
-              { message, expected_version: turn.claim.version }, `${current.key}-${index}`);
-          }
-        }
-      }
+      const turn = experience === 'rag' ? null : await client(session.claimant).post<Turn>('/conversations', undefined, current.key);
+      const nextSetup: DemoSetup | null = experience === 'full' || experience === 'workflow' ? { key: current.key } : null;
       queryClient.clear();
+      if (turn) {
+        const { conversation_id: conversation, claim_id: claim, version } = turn.claim;
+        search.set('conversation', conversation);
+        queryClient.setQueryData<History>(['conversation', conversation], { claim_id: claim, messages: [turn.reply], next_after: null });
+        queryClient.setQueryData(['customer-claim', claim], turn.claim);
+        if (nextSetup && experience === 'workflow') nextSetup.sample = { scenario, conversation, claim, version, nextMessage: 0 };
+      }
+      if (nextSetup) sessionStorage.setItem(setupStorageKey, JSON.stringify(nextSetup));
+      else sessionStorage.removeItem(setupStorageKey);
+      setSetup(nextSetup);
       for (const role of ['operator', 'claimant'] as const) sessionStorage.setItem(tokenKey(role), session[role]);
       sessionStorage.setItem('claimpilot.demo', 'true');
       resetWalkthrough();
@@ -156,17 +206,23 @@ function App() {
       <main className="main-content">
         {hosted && <Notice>Use synthetic information only. Use sample or fictional documents, photos, and claim details.</Notice>}
         {phase && <Notice>{phase}</Notice>}<Failure error={demoError} />
+        {preparingPolicies && (policies.isError && !policies.isFetching ? <div className="stack tight">
+          <Failure error={policies.error} /><Button variant="outline" onClick={() => void policies.refetch({ cancelRefetch: false })}>Retry sample indexing</Button>
+        </div> : <Notice>Indexing sample documents ({indexed.key === setup?.key ? indexed.count : 0} of {demoDocumentCount}). Policy review will be available when indexing finishes.</Notice>)}
+        {preparingSample && (sampleIntake.isError && !sampleIntake.isFetching ? <div className="stack tight">
+          <Failure error={sampleIntake.error} /><Button variant="outline" onClick={() => void sampleIntake.refetch({ cancelRefetch: false })}>Retry sample claim setup</Button>
+        </div> : <Notice>Preparing a sample claim for your confirmation…</Notice>)}
         <WalkthroughProgress />
         <Routes>
           <Route path="/operator" element={<Operations token={sessions.operator} connect={connect} />} />
-          <Route path="/claims/:claimID" element={<OperatorClaim token={sessions.operator} connect={connect} guided={demoSession} />} />
-          <Route path="/knowledge" element={<Knowledge token={sessions.operator} connect={connect} />} />
+          <Route path="/claims/:claimID" element={<OperatorClaim token={sessions.operator} connect={connect} guided={demoSession} preparingPolicies={preparingPolicies} />} />
+          <Route path="/knowledge" element={<Knowledge token={sessions.operator} connect={connect} preparingSamples={preparingPolicies} />} />
           <Route path="/playground" element={<Playground token={sessions.operator} connect={connect} />} />
           <Route path="/showcase/rag" element={<RagShowcase token={sessions.operator} connect={connect} />} />
           <Route path="/contractors" element={<Contractors token={sessions.operator} connect={connect} />} />
           <Route path="/evaluations" element={<Evaluations />} />
-          <Route path="/customer" element={<Customer token={sessions.claimant} connect={connect} guided={demoSession} />} />
-          <Route path="/customer/claims" element={<Customer token={sessions.claimant} connect={connect} guided={demoSession} list />} />
+          <Route path="/customer" element={<Customer token={sessions.claimant} connect={connect} guided={demoSession} preparingSample={preparingSample} />} />
+          <Route path="/customer/claims" element={<Customer token={sessions.claimant} connect={connect} guided={demoSession} list preparingSample={preparingSample} />} />
           <Route path="*" element={<><h1>Page not found</h1><Link className="inline-link" to="/">Return home</Link></>} />
         </Routes>
       </main>

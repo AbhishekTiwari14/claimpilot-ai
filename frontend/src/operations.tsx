@@ -70,10 +70,12 @@ export function Operations({ token, connect }: { token: string; connect: () => v
   </div>;
 }
 
-export function OperatorClaim({ token, connect, guided = false }: { token: string; connect: () => void; guided?: boolean }) {
+export function OperatorClaim({ token, connect, guided = false, preparingPolicies = false }: {
+  token: string; connect: () => void; guided?: boolean; preparingPolicies?: boolean;
+}) {
   const { claimID = '' } = useParams();
   if (!token) return <Panel title="Claim workspace"><Empty icon={<ShieldCheck />} title="Operator credentials required"><Button onClick={connect}>Connect operator session</Button></Empty></Panel>;
-  return <ClaimWorkspace claimID={claimID} token={token} guided={guided} key={claimID} />;
+  return <ClaimWorkspace claimID={claimID} token={token} guided={guided} preparingPolicies={preparingPolicies} key={claimID} />;
 }
 
 const interventions: Record<string, string> = {
@@ -88,7 +90,9 @@ const interventions: Record<string, string> = {
   reassignment_limit: 'The automatic reassignment limit was reached. Review this claim manually.',
 };
 
-function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: string; guided: boolean }) {
+function ClaimWorkspace({ token, claimID, guided, preparingPolicies }: {
+  token: string; claimID: string; guided: boolean; preparingPolicies: boolean;
+}) {
   const api = client(token);
   const [params] = useSearchParams();
   const journey = useWalkthrough();
@@ -191,13 +195,13 @@ function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: st
     <Panel id="policy-review" title="Policy assessment" caption="Preliminary guidance for operator review.">
       {!offerKnowledge && !detail.policy_version && <Guide step="bind-policy">Link the suggested policy version to this claim. The document used in the knowledge demo does not change this choice.</Guide>}
       <div className="row wrap"><span>Policy {policy}</span><label className="sr-only" htmlFor="policy-version">Policy version</label>
-        <select id="policy-version" value={selectedVersion} onChange={event => setVersion(event.target.value)}>
+        <select id="policy-version" disabled={preparingPolicies} value={selectedVersion} onChange={event => setVersion(event.target.value)}>
           <option value="">Select version</option>{[...new Set([...versions, ...(detail.policy_version ? [detail.policy_version] : [])])].map(item => <option key={item}>{item}</option>)}</select>
-        <Button variant="outline" disabled={action.pending || !selectedVersion || claim.status !== 'intake_completed' || selectedVersion === detail.policy_version}
+        <Button variant="outline" disabled={preparingPolicies || action.pending || !selectedVersion || claim.status !== 'intake_completed' || selectedVersion === detail.policy_version}
           onClick={() => void action.run(`bind:${selectedVersion}`, async key => {
             await api.post(`${base}/policy-binding`, { policy_version: selectedVersion }, key); setAssessment(null);
           })}>Bind policy version</Button>
-        <Button variant="outline" disabled={action.pending || !detail.policy_version} onClick={() => void action.run('policy-assessment', async () => {
+        <Button variant="outline" disabled={preparingPolicies || action.pending || !detail.policy_version} onClick={() => void action.run('policy-assessment', async () => {
           setAssessment(await api.post<Assessment>(`${base}/policy-assessment`));
         })}>Assess policy &amp; view citations</Button>
       </div>
@@ -215,7 +219,7 @@ function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: st
           <option value="">No workflow selected</option>{detail.workflow_ids.map((id, i) =>
             <option key={id} value={id}>{i === 0 ? 'Latest workflow' : `Earlier workflow ${i}`}{id === workflow?.workflow_id ? ` · ${label(workflow.status)}` : ''}</option>)}
         </select>
-        <Button disabled={action.pending || (guided && !detail.policy_version) || (!!detail.workflow_ids.length && dispatchQuery.isPending)} onClick={() => {
+        <Button disabled={preparingPolicies || action.pending || (guided && !detail.policy_version) || (!!detail.workflow_ids.length && dispatchQuery.isPending)} onClick={() => {
           if (workflow?.pause_id && !window.confirm('This claim already has a paused workflow. Start a separate run instead of resuming it?')) return;
           void action.run(`start:${claim.version}`, async key => {
             const result = await api.post<Workflow>(`${base}/workflows`, { expected_version: claim.version }, key);
@@ -229,7 +233,7 @@ function ClaimWorkspace({ token, claimID, guided }: { token: string; claimID: st
           {workflow.updated_at && <small>Updated {localTime(workflow.updated_at)}</small>}</div>
         {workflow.execution_error && <Notice kind="error">{label(workflow.execution_error)}. Retry the prior request if it failed.</Notice>}
         {workflow.pause_id && ['requires_intervention', 'awaiting_information'].includes(workflow.status) &&
-          <Button variant="outline" disabled={action.pending} onClick={() => void action.run(`retry:${workflow.pause_id}:${claim.version}`, async key => {
+          <Button variant="outline" disabled={preparingPolicies || action.pending} onClick={() => void action.run(`retry:${workflow.pause_id}:${claim.version}`, async key => {
             await api.post(`${path}/resume`, { pause_id: workflow.pause_id, action: 'retry', expected_version: claim.version }, key);
           })}>Resume after review</Button>}
         {run.data && <ProposalCard run={run.data} catalog={catalog.data ?? []} />}

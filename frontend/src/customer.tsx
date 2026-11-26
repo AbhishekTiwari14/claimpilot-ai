@@ -17,8 +17,8 @@ const suggestedFields: Record<string, [number, string]> = {
   ongoing_hazards: [4, 'The current safety conditions are '],
 };
 
-export default function Customer({ token, connect, guided, list = false }: {
-  token: string; connect: () => void; guided: boolean; list?: boolean;
+export default function Customer({ token, connect, guided, list = false, preparingSample = false }: {
+  token: string; connect: () => void; guided: boolean; list?: boolean; preparingSample?: boolean;
 }) {
   const api = client(token);
   const [params, setParams] = useSearchParams();
@@ -52,14 +52,14 @@ export default function Customer({ token, connect, guided, list = false }: {
             <Link className="inline-link" to={`?conversation=${claim.conversation_id}&scenario=${scenario.id}`}>Claim {shortID(claim.claim_id)}</Link>
             <div className="row wrap"><Badge value={claim.status} />{claim.dispatch_status && <Badge value={claim.dispatch_status} />}</div>
           </div>)}</div> : <Empty icon={<MessageSquare />} title="No claims yet">Report damage to start a claim.</Empty>}</Panel>}
-        {conversation ? <Conversation token={token} conversation={conversation} key={conversation} guided={guided} scenario={scenario} experience={experience} /> :
+        {conversation ? <Conversation token={token} conversation={conversation} key={conversation} guided={guided} scenario={scenario} experience={experience} preparingSample={preparingSample} /> :
           <Panel title="Claim intake"><Empty icon={<MessageSquare />} title="Start or resume a conversation">Your conversation and claim details are saved as you go.</Empty></Panel>}
       </div>}
   </div>;
 }
 
-function Conversation({ token, conversation, guided, scenario, experience }: {
-  token: string; conversation: string; guided: boolean; scenario: ReturnType<typeof scenarioFor>; experience: Experience;
+function Conversation({ token, conversation, guided, scenario, experience, preparingSample }: {
+  token: string; conversation: string; guided: boolean; scenario: ReturnType<typeof scenarioFor>; experience: Experience; preparingSample: boolean;
 }) {
   const api = client(token);
   const [text, setText] = useState('');
@@ -128,9 +128,9 @@ function Conversation({ token, conversation, guided, scenario, experience }: {
           <div><small>{message.role === 'assistant' ? 'ClaimPilot' : 'You'}</small><p>{message.text}</p></div>
         </div>)}</div>
         <Failure error={mutation.error} />
-        {claim.processing_error && <Notice>Intake paused while processing your last message. Retry it or submit a replacement.</Notice>}
+        {claim.processing_error && !preparingSample && <Notice>Intake paused while processing your last message. Retry it or submit a replacement.</Notice>}
         {retry && mutation.error && <Button variant="outline" disabled={mutation.pending} onClick={() => send(retry)}>Retry saved message</Button>}
-        {!complete && <form onSubmit={submit} className="chat-composer stack tight">
+        {!complete && !preparingSample && <form onSubmit={submit} className="chat-composer stack tight">
           {!ready && <Guide key={firstMessage ? 'opening' : field} step={firstMessage ? 'opening' : `reply-${field}`}>
             {firstMessage ? 'Start with the sample sentence or describe the damage in your own words. Leave some details for the assistant to ask about.' :
               `The assistant needs ${fieldLabel(field).toLowerCase()}. Use the suggested reply or enter your own.`}</Guide>}
@@ -144,7 +144,7 @@ function Conversation({ token, conversation, guided, scenario, experience }: {
               <Button type="button" size="icon" variant="ghost" aria-label="Attach a damage photo" onClick={() => photoInput.current?.click()}><Paperclip /></Button></span>}
               <Button disabled={mutation.pending || !text.trim()}><Send /> {mutation.pending ? 'Sending…' : 'Send message'}</Button></div></div>
         </form>}
-        {experience !== 'chat' && <Photos token={token} claimID={claimID} guided={guided} inputRef={complete ? undefined : photoInput} inline ready={ready} />}
+        {experience !== 'chat' && !preparingSample && <Photos token={token} claimID={claimID} guided={guided} inputRef={complete ? undefined : photoInput} inline ready={ready} />}
       </Panel>
       <Panel title="Claim checklist" caption="This updates with the assistant’s latest reply.">
         <div className="stack">
@@ -159,7 +159,7 @@ function Conversation({ token, conversation, guided, scenario, experience }: {
           </details>
           {!complete && claim.facts.suspected_cause && <p className="muted">Suspected cause: {valueText(claim.facts.suspected_cause.value)}</p>}
           {Object.entries(claim.conflicts).map(([field, values]) => <Notice key={field}>Clarify {label(field)}: {values.map(fact => String(fact.value)).join(' / ')}.</Notice>)}
-          {ready && <>
+          {ready && !preparingSample && <>
             {(!journey || journey.progress.photo) && <Guide step="confirm">Check the address and other details, then confirm this exact report.</Guide>}
             <p className="muted">To correct a detail, send the correction in the conversation before confirming.</p>
             <label className="check"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /> I reviewed these details and confirm they are correct.</label>

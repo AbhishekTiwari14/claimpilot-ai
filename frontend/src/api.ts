@@ -24,7 +24,7 @@ export type Analysis = { id: string; status: string; photo_ids: string[]; provid
 export type Scope = { document_type: 'policy' | 'operations'; policy_id?: string | null; policy_version?: string | null };
 export type DocumentInput = Scope & { title: string; subject_claimant_id?: string | null; document_version?: number };
 export type DocumentRow = DocumentInput & { id: string; filename: string; status: string; generation: number;
-  created_at: string; error_code: string | null; chunk_count?: number | null;
+  created_at: string; content_hash: string; error_code: string | null; chunk_count?: number | null;
   indexing_config?: { embedding?: string; distance?: string; chunk_size?: number; chunk_overlap?: number } | null };
 export type Source = {
   chunk_id: string; filename: string; title: string; section: string | null; page: number | null;
